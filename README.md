@@ -2,6 +2,14 @@
 
 This system implements a deep learning model that learns to predict wireframe structures from point cloud data. It's specifically designed to "overtrain" on a single example to achieve perfect reconstruction of wireframe connectivity from point cloud input.
 
+## 🎯 Model Predictions vs Ground Truth
+
+![Prediction Comparison](main/prediction_comparison.png)
+
+*Left: Ground Truth Wireframe | Center: Predicted Wireframe | Right: Overlay Comparison*
+
+> **Note**: Run `python evaluate_results.py` in the `main/` directory to generate this comparison image after training the model.
+
 ## 🎯 Achieved Results
 
 **This system has been successfully tested and achieved the following results:**
