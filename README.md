@@ -99,7 +99,8 @@ Point Cloud (10,484×8) → PointNet Encoder → Global Features (512D)
 main/
 ├── main.py                    # Main training and model implementation
 ├── test_model.py             # Testing and validation script
-├── visualize_wireframe.py    # Visualization utilities
+├── visualize_wireframe.py    # Basic matplotlib visualizations
+├── visualize_open3d.py       # Interactive 3D Open3D visualizations
 ├── evaluate_results.py       # Comprehensive results analysis
 ├── 1.xyz                     # Input point cloud data (10,484 points)
 ├── 1.obj                     # Target wireframe data (32 vertices, 33 edges)
@@ -108,7 +109,8 @@ main/
 ├── test_wireframe.png        # Wireframe visualization
 ├── prediction_comparison.png  # Model predictions vs ground truth
 ├── edge_probabilities.png    # Edge probability analysis
-└── training_summary.png      # Complete performance overview
+├── training_summary.png      # Complete performance overview
+└── open3d_wireframe_comparison.png  # High-quality Open3D rendering
 
 requirements.txt              # Python dependencies
 README.md                     # This documentation
@@ -126,6 +128,7 @@ Required dependencies:
 - NumPy >= 1.21.0
 - Matplotlib >= 3.4.0
 - Scikit-learn >= 1.0.0
+- Open3D >= 0.15.0 (for interactive 3D visualization)
 
 ## Usage
 
@@ -220,6 +223,29 @@ python visualize_wireframe.py
 Creates:
 - Point cloud visualization (`point_cloud_visualization.png`)
 - Original wireframe visualization (`wireframe_visualization.png`)
+
+### 3b. Interactive 3D Visualization (Open3D)
+
+For professional, interactive 3D visualization:
+
+```bash
+cd main
+python visualize_open3d.py
+```
+
+**Interactive Menu Options:**
+1. **Point Cloud Only** - Interactive 3D point cloud with original colors
+2. **Ground Truth Wireframe Only** - Blue wireframe structure
+3. **Predicted Wireframe Only** - Green predicted wireframe  
+4. **Comparison Overlay** - Both wireframes overlaid (Blue=GT, Green=Predicted)
+5. **Comprehensive View** - Point cloud + both wireframes together
+6. **Save High-Quality Images** - Export 1920x1080 rendered images
+
+**Controls:**
+- **Mouse**: Rotate view
+- **Scroll**: Zoom in/out  
+- **Drag**: Pan view
+- **Interactive**: Real-time 3D exploration
 
 ### 4. Comprehensive Analysis
 
