@@ -192,11 +192,14 @@ def visualize_edge_probabilities(edge_probs, edge_indices, threshold=0.5):
     
     # Edge probabilities sorted
     sorted_probs = np.sort(edge_probs)[::-1]
-    ax2.plot(range(len(sorted_probs)), sorted_probs, 'b-', linewidth=2)
+    # Use 1-based indexing for logarithmic scale (log(0) is undefined)
+    x_indices = np.arange(1, len(sorted_probs) + 1)
+    ax2.plot(x_indices, sorted_probs, 'b-', linewidth=2)
     ax2.axhline(threshold, color='red', linestyle='--', linewidth=2, label=f'Threshold ({threshold})')
-    ax2.set_xlabel('Edge Index (sorted by probability)')
+    ax2.set_xlabel('Edge Index (sorted by probability) - Log Scale')
     ax2.set_ylabel('Edge Probability')
     ax2.set_title('Sorted Edge Probabilities')
+    ax2.set_xscale('log', base=2)  # Make x-axis logarithmic with base 100
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
