@@ -1,8 +1,13 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from main import load_and_preprocess_data, PointCloudToWireframe
-from visualize_wireframe import visualize_point_cloud, visualize_wireframe
+from main import load_and_preprocess_data
+from models.PointCloudToWireframe import PointCloudToWireframe
+from visualize.visualize_wireframe import visualize_point_cloud, visualize_wireframe
 
 def test_data_loading():
     """Test basic data loading and preprocessing"""
@@ -89,7 +94,8 @@ def test_loss_computation():
     """Test loss computation"""
     print("\nTesting loss computation...")
     
-    from main import WireframeLoss, create_edge_labels_from_adjacency
+    from losses.WireframeLoss import WireframeLoss
+    from train import create_edge_labels_from_adjacency
     
     dataset = load_and_preprocess_data()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

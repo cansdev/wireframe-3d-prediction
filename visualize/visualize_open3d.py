@@ -1,7 +1,12 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 import torch
 import open3d as o3d
-from main import load_and_preprocess_data, PointCloudToWireframe
+from main import load_and_preprocess_data
+from models.PointCloudToWireframe import PointCloudToWireframe
 import time
 
 def load_trained_model():

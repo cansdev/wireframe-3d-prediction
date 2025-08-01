@@ -1,8 +1,14 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import torch
-from main import PointCloudWireframeDataset, PointCloudToWireframe, load_and_preprocess_data
+from demo_dataset.PointCloudWireframeDataset import PointCloudWireframeDataset
+from models.PointCloudToWireframe import PointCloudToWireframe
+from main import load_and_preprocess_data
 
 def visualize_point_cloud(point_cloud, title="Point Cloud", max_points=1000):
     """Visualize point cloud data"""
