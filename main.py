@@ -5,7 +5,7 @@ from train import evaluate_model, train_overfit_model
 
 def load_and_preprocess_data():
     """Load and preprocess the main dataset"""
-    dataset = PointCloudWireframeDataset('demo_dataset/pointcloud/100.xyz', 'demo_dataset/wireframe/100.obj')
+    dataset = PointCloudWireframeDataset('demo_dataset/pointcloud/1003.xyz', 'demo_dataset/wireframe/1003.obj')
     
     # Load data
     point_cloud = dataset.load_point_cloud()
