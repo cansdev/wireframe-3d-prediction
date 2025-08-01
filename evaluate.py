@@ -1,10 +1,15 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-from main import load_and_preprocess_data, PointCloudToWireframe
-from visualize_wireframe import (visualize_prediction_comparison, 
-                               plot_training_loss, 
-                               visualize_edge_probabilities)
+from main import load_and_preprocess_data
+from models.PointCloudToWireframe import PointCloudToWireframe
+from train import train_overfit_model
+from train import evaluate_model
+from visualize.visualize_wireframe import visualize_prediction_comparison, visualize_edge_probabilities
 
 def load_trained_model():
     """Load the trained model"""
