@@ -48,4 +48,3 @@ class EdgePredictor(nn.Module):
         edge_probs = edge_probs.view(batch_size, num_edges)
         
         return edge_probs, edge_indices
-
