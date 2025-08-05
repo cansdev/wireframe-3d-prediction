@@ -64,17 +64,23 @@ def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
         [(i, j) for i in range(num_vertices) for j in range(i+1, num_vertices)]
     ).to(device)
     
-    # Loss function and optimizer
-    criterion = WireframeLoss(vertex_weight=1.0, edge_weight=2.0)
-    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-    scheduler = StepLR(optimizer, step_size=1000, gamma=0.8)
+    criterion = WireframeLoss(vertex_weight=50.0, edge_weight=0.1)  # Extreme vertex focus
+    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)  # No weight decay
+    # More aggressive learning rate schedule
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400, 700, 1700, 4000], gamma=0.3)
     
     # Training loop
     model.train()
     best_loss = float('inf')
+    best_vertex_rmse = float('inf')  # Initialize best vertex RMSE
+    best_model_state = None  # Initialize best model state
     loss_history = []
-    
-    logger.info(f"Starting overtraining for {num_epochs} epochs...")
+    vertex_rmse_history = []
+    patience = 500  # Increased patience for better convergence
+    patience_counter = 0
+    current_vertex_rmse = 999999
+
+    logger.info(f"Starting vertex-optimized for {num_epochs} epochs...")
     start_time = time.time()
     
     for epoch in range(num_epochs):
@@ -103,18 +109,46 @@ def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
         # Track progress
         loss_history.append(total_loss.item())
         
+        # Calculate current vertex RMSE for monitoring
+        with torch.no_grad():
+            pred_vertices_np = predictions['vertices'].cpu().numpy()[0]
+            target_vertices_np = target_vertices.cpu().numpy()[0]
+            # Convert back to original scale for RMSE calculation
+            pred_vertices_orig = dataset.spatial_scaler.inverse_transform(pred_vertices_np)
+            target_vertices_orig = dataset.spatial_scaler.inverse_transform(target_vertices_np)
+            current_vertex_rmse = np.sqrt(np.mean((pred_vertices_orig - target_vertices_orig) ** 2))
+            vertex_rmse_history.append(current_vertex_rmse)
+        
+        # Early stopping based on vertex RMSE and save best model
+        if current_vertex_rmse < best_vertex_rmse:
+            best_vertex_rmse = current_vertex_rmse
+            best_model_state = model.state_dict().copy()  # Save the best model state
+            patience_counter = 0
+        else:
+            patience_counter += 1
         if total_loss.item() < best_loss:
             best_loss = total_loss.item()
-            
-        # Log progress
+        
+        # Early stopping check (more aggressive)
+        if patience_counter >= patience and epoch > 400:
+            logger.info(f"Early stopping at epoch {epoch}! Vertex RMSE hasn't improved for {patience} epochs")
+            break
+
+        # Log progress 
         if epoch % 100 == 0 or epoch == num_epochs - 1:
             elapsed_time = time.time() - start_time
             logger.info(f"Epoch {epoch:4d}/{num_epochs} | "
                        f"Total Loss: {total_loss.item():.6f} | "
                        f"Vertex Loss: {loss_dict['vertex_loss'].item():.6f} | "
                        f"Edge Loss: {loss_dict['edge_loss'].item():.6f} | "
+                       f"Vertex RMSE: {current_vertex_rmse:.6f} | "
                        f"LR: {scheduler.get_last_lr()[0]:.6f} | "
                        f"Time: {elapsed_time:.1f}s")
+            
+    # Load the best model state before returning
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        logger.info(f"Loaded best model state with Vertex RMSE: {best_vertex_rmse:.6f}")
     
     logger.info(f"Training completed! Best loss: {best_loss:.6f}")
     
