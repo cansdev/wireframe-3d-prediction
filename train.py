@@ -9,8 +9,7 @@ from models.PointCloudToWireframe import PointCloudToWireframe
 from losses.WireframeLoss import WireframeLoss
 from models.EdgePredictor import EdgePredictor
 from models.PointNetEncoder import PointNetEncoder
-from demo_dataset.PointCloudWireframeDataset import PointCloudWireframeDataset
-
+from demo_dataset.PCtoWFdataset import PCtoWFdataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,27 +44,56 @@ def create_edge_labels_from_adjacency(adj_matrix, edge_indices):
 
 
 
-def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
-    """Train model to overfit on single example"""
+def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
+    """Train model to overfit on batch of examples"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Training on device: {device}")
     
-    # Create model
-    num_vertices = len(dataset.vertices)
-    model = PointCloudToWireframe(input_dim=8, num_vertices=num_vertices).to(device)
+    # Extract data from batch_data dictionary
+    point_clouds = batch_data['point_clouds']  # Shape: (batch_size, num_points, 3)
+    vertices = batch_data['vertices']  # Shape: (batch_size, max_vertices, 3)
+    adjacency_matrices = batch_data['adjacency_matrices']  # Shape: (batch_size, max_vertices, max_vertices)
+    original_datasets = batch_data['original_datasets']
     
-    # Prepare data
-    point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
-    target_vertices = torch.FloatTensor(dataset.normalized_vertices).unsqueeze(0).to(device)
+    # Get dimensions
+    batch_size, num_points, _ = point_clouds.shape
+    _, max_vertices, _ = vertices.shape
     
-    # Create edge labels
-    edge_labels = create_edge_labels_from_adjacency(
-        dataset.edge_adjacency_matrix, 
-        [(i, j) for i in range(num_vertices) for j in range(i+1, num_vertices)]
-    ).to(device)
+    # Extract actual vertex counts for each sample
+    actual_vertex_counts = []
+    for dataset in original_datasets:
+        actual_vertex_counts.append(len(dataset.vertices))
+    actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
     
-    criterion = WireframeLoss(vertex_weight=50.0, edge_weight=0.1)  # Extreme vertex focus
-    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)  # No weight decay
+    # Create model with dynamic vertices
+    model = PointCloudToWireframe(input_dim=8, max_vertices=max_vertices).to(device)
+    
+    # Prepare data tensors
+    point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
+    target_vertices = torch.FloatTensor(vertices).to(device)
+    
+    # Create edge labels for each sample in the batch
+    edge_labels_list = []
+    for i in range(batch_size):
+        actual_count = actual_vertex_counts[i].item()
+        edge_labels = create_edge_labels_from_adjacency(
+            adjacency_matrices[i], 
+            [(j, k) for j in range(actual_count) for k in range(j+1, actual_count)]
+        )
+        edge_labels_list.append(edge_labels.squeeze(0))  # Remove the batch dimension
+    
+    # Pad edge labels to same length for batch processing
+    max_edges = max([len(labels) for labels in edge_labels_list]) if edge_labels_list else 0
+    if max_edges > 0:
+        edge_labels_batch = torch.zeros(batch_size, max_edges).to(device)
+        for i, labels in enumerate(edge_labels_list):
+            if len(labels) > 0:
+                edge_labels_batch[i, :len(labels)] = labels
+    else:
+        edge_labels_batch = torch.zeros(batch_size, 0).to(device)
+    
+    criterion = WireframeLoss(vertex_weight=50.0, edge_weight=0.1, count_weight=1.0)
+    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)
     # More aggressive learning rate schedule
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400, 700, 1700, 4000], gamma=0.3)
     
@@ -86,13 +114,14 @@ def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
     for epoch in range(num_epochs):
         optimizer.zero_grad()
         
-        # Forward pass
-        predictions = model(point_cloud_tensor)
+        # Forward pass with vertex count information
+        predictions = model(point_cloud_tensor, actual_vertex_counts)
         
         # Calculate loss
         targets = {
             'vertices': target_vertices,
-            'edge_labels': edge_labels
+            'edge_labels': edge_labels_batch,
+            'vertex_counts': actual_vertex_counts
         }
         loss_dict = criterion(predictions, targets)
         total_loss = loss_dict['total_loss']
@@ -109,13 +138,19 @@ def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
         # Track progress
         loss_history.append(total_loss.item())
         
-        # Calculate current vertex RMSE for monitoring
+        # Calculate current vertex RMSE for monitoring (using first sample in batch)
         with torch.no_grad():
             pred_vertices_np = predictions['vertices'].cpu().numpy()[0]
             target_vertices_np = target_vertices.cpu().numpy()[0]
-            # Convert back to original scale for RMSE calculation
-            pred_vertices_orig = dataset.spatial_scaler.inverse_transform(pred_vertices_np)
-            target_vertices_orig = dataset.spatial_scaler.inverse_transform(target_vertices_np)
+            # Only use actual vertices for RMSE calculation
+            actual_count = actual_vertex_counts[0].item()
+            pred_vertices_actual = pred_vertices_np[:actual_count]
+            target_vertices_actual = target_vertices_np[:actual_count]
+            
+            # Convert back to original scale for RMSE calculation using first scaler
+            scalers = batch_data['scalers']
+            pred_vertices_orig = scalers[0].inverse_transform(pred_vertices_actual)
+            target_vertices_orig = scalers[0].inverse_transform(target_vertices_actual)
             current_vertex_rmse = np.sqrt(np.mean((pred_vertices_orig - target_vertices_orig) ** 2))
             vertex_rmse_history.append(current_vertex_rmse)
         
@@ -155,63 +190,106 @@ def train_overfit_model(dataset, num_epochs=5000, learning_rate=0.001):
     return model, loss_history
 
 
-def evaluate_model(model, dataset, device):
-    """Evaluate the trained model"""
+def evaluate_model(model, batch_data, device, max_vertices):
+    """Evaluate the trained model on batch data"""
     model.eval()
     
+    # Extract data from batch_data dictionary
+    point_clouds = batch_data['point_clouds']
+    vertices = batch_data['vertices']
+    adjacency_matrices = batch_data['adjacency_matrices']
+    scalers = batch_data['scalers']
+    original_datasets = batch_data['original_datasets']
+    
+    results = []
+    
     with torch.no_grad():
-        # Prepare input
-        point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
+        # Prepare input - convert entire batch
+        point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
         
-        # Forward pass
+        # Forward pass on entire batch
         predictions = model(point_cloud_tensor)
         
-        # Get predictions
-        pred_vertices = predictions['vertices'].cpu().numpy()[0]
-        pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
-        
-        # Convert back to original scale
-        pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
-        true_vertices_original = dataset.vertices
-        
-        # Calculate metrics
-        vertex_mse = np.mean((pred_vertices_original - true_vertices_original) ** 2)
-        vertex_rmse = np.sqrt(vertex_mse)
-        
-        # Edge accuracy (threshold at 0.5)
-        pred_adj_matrix = create_adjacency_matrix_from_predictions(
-            torch.FloatTensor(pred_edge_probs).unsqueeze(0),
-            edge_indices,
-            len(dataset.vertices),
-            threshold=0.5
-        )[0].numpy()
-        
-        true_adj_matrix = dataset.edge_adjacency_matrix
-        edge_accuracy = np.mean((pred_adj_matrix == true_adj_matrix).astype(float))
-        
-        # Edge precision and recall
-        true_edges = (true_adj_matrix == 1)
-        pred_edges = (pred_adj_matrix == 1)
-        
-        tp = np.sum(true_edges & pred_edges)
-        fp = np.sum(~true_edges & pred_edges)
-        fn = np.sum(true_edges & ~pred_edges)
-        
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-        
-        results = {
-            'vertex_rmse': vertex_rmse,
-            'edge_accuracy': edge_accuracy,
-            'edge_precision': precision,
-            'edge_recall': recall,
-            'edge_f1_score': f1_score,
-            'predicted_vertices': pred_vertices_original,
-            'predicted_adjacency': pred_adj_matrix,
-            'edge_probabilities': pred_edge_probs
-        }
-        
-        return results
+        # Process each sample in the batch
+        for i in range(len(point_clouds)):
+            # Get predictions for this sample
+            pred_vertices = predictions['vertices'][i].cpu().numpy()
+            pred_edge_probs = predictions['edge_probs'][i].cpu().numpy()
+            edge_indices = predictions['edge_indices']
+            predicted_vertex_counts = predictions['predicted_vertex_counts'][i].cpu().numpy()
+            
+            # Get original dataset for this sample
+            original_dataset = original_datasets[i]
+            scaler = scalers[i]
+            
+            # Get the actual number of vertices (not padded)
+            actual_num_vertices = len(original_dataset.vertices)
+            
+            # Only take the actual vertices, not the padded ones
+            pred_vertices_actual = pred_vertices[:actual_num_vertices]
+            
+            # Convert back to original scale
+            pred_vertices_original = scaler.inverse_transform(pred_vertices_actual)
+            true_vertices_original = original_dataset.vertices
+            
+            # Calculate metrics
+            vertex_mse = np.mean((pred_vertices_original - true_vertices_original) ** 2)
+            vertex_rmse = np.sqrt(vertex_mse)
+            
+            # Edge accuracy (threshold at 0.5)
+            # Use the predicted number of vertices for edge evaluation
+            predicted_num_vertices = int(predicted_vertex_counts)
+            
+            # Generate edge indices for the predicted number of vertices
+            predicted_edge_indices = [(j, k) for j in range(predicted_num_vertices) for k in range(j+1, predicted_num_vertices)]
+            
+            # Only take the edge probabilities for valid edges (based on predicted vertices)
+            num_predicted_edges = len(predicted_edge_indices)
+            pred_edge_probs_actual = pred_edge_probs[:num_predicted_edges]
+            
+            pred_adj_matrix = create_adjacency_matrix_from_predictions(
+                torch.FloatTensor(pred_edge_probs_actual).unsqueeze(0),
+                predicted_edge_indices,
+                predicted_num_vertices,
+                threshold=0.5
+            )[0].numpy()
+            
+            # Get original adjacency matrix
+            true_adj_matrix = original_dataset.edge_adjacency_matrix
+            
+            # Resize true adjacency matrix to match predicted size
+            true_adj_resized = np.zeros((predicted_num_vertices, predicted_num_vertices))
+            min_size = min(predicted_num_vertices, true_adj_matrix.shape[0])
+            true_adj_resized[:min_size, :min_size] = true_adj_matrix[:min_size, :min_size]
+            true_adj_matrix = true_adj_resized
+            
+            edge_accuracy = np.mean((pred_adj_matrix == true_adj_matrix).astype(float))
+            
+            # Edge precision and recall
+            true_edges = (true_adj_matrix == 1)
+            pred_edges = (pred_adj_matrix == 1)
+            
+            tp = np.sum(true_edges & pred_edges)
+            fp = np.sum(~true_edges & pred_edges)
+            fn = np.sum(true_edges & ~pred_edges)
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+            
+            result = {
+                'dataset_index': i,
+                'vertex_rmse': vertex_rmse,
+                'edge_accuracy': edge_accuracy,
+                'edge_precision': precision,
+                'edge_recall': recall,
+                'edge_f1_score': f1_score,
+                'predicted_vertices': pred_vertices_original,
+                'predicted_adjacency': pred_adj_matrix,
+                'edge_probabilities': pred_edge_probs
+            }
+            
+            results.append(result)
+    
+    return results
 

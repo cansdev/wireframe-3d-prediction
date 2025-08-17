@@ -8,7 +8,6 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from demo_dataset.PointCloudWireframeDataset import PointCloudWireframeDataset
 from models.PointCloudToWireframe import PointCloudToWireframe
-from main import load_and_preprocess_data
 
 def visualize_point_cloud(point_cloud, title="Point Cloud", max_points=1000):
     """Visualize point cloud data"""

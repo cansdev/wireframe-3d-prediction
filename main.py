@@ -1,62 +1,71 @@
 import torch
-from demo_dataset.PointCloudWireframeDataset import PointCloudWireframeDataset
+from demo_dataset.PCtoWFdataset import PCtoWFdataset
 from train import evaluate_model, train_overfit_model
 
+def main():
 
-def load_and_preprocess_data():
-    """Load and preprocess the main dataset"""
-    dataset = PointCloudWireframeDataset('demo_dataset/pointcloud/1003.xyz', 'demo_dataset/wireframe/1003.obj')
-    
     # Load data
-    point_cloud = dataset.load_point_cloud()
-    vertices, edges = dataset.load_wireframe()
+    dataset = PCtoWFdataset(
+        train_pc_dir='demo_dataset/train_dataset/point_cloud',
+        train_wf_dir='demo_dataset/train_dataset/wireframe',
+        test_pc_dir='demo_dataset/test_dataset/point_cloud',
+        test_wf_dir='demo_dataset/test_dataset/wireframe'
+    )
     
-    # Create adjacency matrix
-    adj_matrix = dataset.create_adjacency_matrix()
-    
-    # Normalize data
-    normalized_pc = dataset.normalize_data()
-    
-    # Find nearest points to vertices
-    distances, indices = dataset.find_nearest_points_to_vertices(k=10)
-    
-    return dataset
-
-if __name__ == "__main__":
-    # Load data
-    dataset = load_and_preprocess_data()
-    
-    print(f"Point cloud shape: {dataset.point_cloud.shape}")
-    print(f"Vertices shape: {dataset.vertices.shape}") 
-    print(f"Edges shape: {dataset.edges.shape}")
-    print(f"Adjacency matrix shape: {dataset.edge_adjacency_matrix.shape}")
-    print(f"Normalized point cloud shape: {dataset.normalized_point_cloud.shape}")
+    # Print dataset info
+    print("\n" + "="*60)
+    print("DATASET INFORMATION")
+    print("="*60)
     
     # Train model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    print("\n" + "="*50)
-    print("STARTING OVERTRAINING ON SINGLE EXAMPLE")
-    print("="*50)
+    print("\n" + "="*60)
+    print("STARTING BATCH TRAINING")
+    print("="*60)
+
+    # Load training dataset with multiple files
+    train_dataset = dataset.load_training_dataset()
     
-    model, loss_history = train_overfit_model(dataset, num_epochs=1000, learning_rate=0.003)
-    
+    # Load and preprocess all training data at once
+    train_dataset.load_all_data()
+
+    batch_data = train_dataset.get_batch_data(target_points=1024)
+
+    model, loss_history = train_overfit_model(batch_data, num_epochs=1000, learning_rate=0.002)
+
     print("\n" + "="*50)
     print("EVALUATING TRAINED MODEL")
     print("="*50)
     
-    # Evaluate model
-    results = evaluate_model(model, dataset, device)
+    # Get max vertices for evaluation
+    max_vertices = train_dataset.max_vertices
     
-    print(f"Vertex RMSE: {results['vertex_rmse']:.6f}")
-    print(f"Edge Accuracy: {results['edge_accuracy']:.4f}")
-    print(f"Edge Precision: {results['edge_precision']:.4f}")
-    print(f"Edge Recall: {results['edge_recall']:.4f}")
-    print(f"Edge F1-Score: {results['edge_f1_score']:.4f}")
+    # Load and evaluate test dataset
+    test_dataset = dataset.load_testing_dataset()
+    test_dataset.load_all_data()
+    test_batch_data = test_dataset.get_batch_data(target_points=1024)
+    
+    test_results = evaluate_model(model, test_batch_data, device, max_vertices)
+    
+    # Print results
+    print("\nTest Results:")
+    print("-" * 40)
+    for result in test_results:
+        print(f"Test Dataset {result['dataset_index']+1}:")
+        print(f"  Vertex RMSE: {result['vertex_rmse']:.6f}")
+        print(f"  Edge Accuracy: {result['edge_accuracy']:.6f}")
+        print(f"  Edge Precision: {result['edge_precision']:.6f}")
+        print(f"  Edge Recall: {result['edge_recall']:.6f}")
+        print(f"  Edge F1-Score: {result['edge_f1_score']:.6f}")
+        print()
     
     # Save model
     torch.save(model.state_dict(), 'trained_model.pth')
     print("\nModel saved as 'trained_model.pth'")
     
     print("\nOvertraining completed successfully!")
+
+if __name__ == "__main__":
+    main()
