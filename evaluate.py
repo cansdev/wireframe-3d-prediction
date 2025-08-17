@@ -5,38 +5,84 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-from main import load_and_preprocess_data
+from demo_dataset.PCtoWFdataset import PCtoWFdataset
 from models.PointCloudToWireframe import PointCloudToWireframe
-from train import train_overfit_model
-from train import evaluate_model
+from train import train_overfit_model, evaluate_model
 from visualize.visualize_wireframe import visualize_prediction_comparison, visualize_edge_probabilities
 
 def load_trained_model():
-    """Load the trained model"""
-    print("Loading trained model...")
+    """Load the pre-trained model from trained_model.pth"""
+    print("Loading pre-trained model...")
     
-    # Load dataset to get model parameters
-    dataset = load_and_preprocess_data()
+    # Load data to get model parameters
+    dataset = PCtoWFdataset(
+        train_pc_dir='demo_dataset/train_dataset/point_cloud',
+        train_wf_dir='demo_dataset/train_dataset/wireframe',
+        test_pc_dir='demo_dataset/test_dataset/point_cloud',
+        test_wf_dir='demo_dataset/test_dataset/wireframe'
+    )
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
     
-    # Create model with same architecture
-    num_vertices = len(dataset.vertices)
-    model = PointCloudToWireframe(input_dim=8, num_vertices=num_vertices).to(device)
+    # Load training dataset to get model dimensions
+    print("Loading training dataset to get model dimensions...")
+    train_dataset = dataset.load_training_dataset()
+    train_dataset.load_all_data()
+    
+    # Get max vertices from training data
+    max_vertices = train_dataset.max_vertices
+    
+    # Create model with same architecture as training
+    model = PointCloudToWireframe(input_dim=8, max_vertices=max_vertices).to(device)
     
     # Load trained weights
-    model.load_state_dict(torch.load('trained_model.pth', map_location=device))
-    model.eval()
+    if os.path.exists('trained_model.pth'):
+        model.load_state_dict(torch.load('trained_model.pth', map_location=device))
+        model.eval()
+        print(f"✓ Pre-trained model loaded successfully from 'trained_model.pth'")
+    else:
+        raise FileNotFoundError("trained_model.pth not found! Please run main.py first to train the model.")
     
-    print(f"✓ Model loaded successfully on {device}")
-    return model, dataset, device
+    return model, dataset, device, train_dataset
 
-def analyze_predictions():
-    """Analyze the model's predictions in detail"""
-    model, dataset, device = load_trained_model()
+def create_individual_visualizations(model, dataset_obj, device, output_dir, dataset_name):
+    """Create comprehensive visualizations for a single dataset"""
+    print(f"Creating visualizations for {dataset_name}...")
+    
+    # Create dataset-specific output directory
+    dataset_output_dir = os.path.join(output_dir, dataset_name)
+    os.makedirs(dataset_output_dir, exist_ok=True)
+    
+    # Create prediction comparison
+    fig1 = visualize_prediction_comparison(dataset_obj, model, device)
+    fig1.savefig(os.path.join(dataset_output_dir, f'{dataset_name}_prediction_comparison.png'), 
+                 dpi=150, bbox_inches='tight')
+    plt.close(fig1)
+    
+    # Get predictions for edge probability visualization
+    model.eval()
+    with torch.no_grad():
+        point_cloud_tensor = torch.FloatTensor(dataset_obj.normalized_point_cloud).unsqueeze(0).to(device)
+        predictions = model(point_cloud_tensor)
+        pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
+        edge_indices = predictions['edge_indices']
+    
+    # Create edge probability visualization
+    fig2 = visualize_edge_probabilities(pred_edge_probs, edge_indices)
+    fig2.savefig(os.path.join(dataset_output_dir, f'{dataset_name}_edge_probabilities.png'), 
+                 dpi=150, bbox_inches='tight')
+    plt.close(fig2)
+    
+    print(f"✓ Saved visualizations for {dataset_name} in {dataset_output_dir}")
+
+def analyze_individual_predictions(model, dataset_obj, device, dataset_name):
+    """Analyze predictions for a single dataset"""
+    model.eval()
     
     with torch.no_grad():
         # Get predictions
-        point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
+        point_cloud_tensor = torch.FloatTensor(dataset_obj.normalized_point_cloud).unsqueeze(0).to(device)
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
@@ -44,13 +90,16 @@ def analyze_predictions():
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
-        # Convert back to original scale
-        pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
-        true_vertices = dataset.vertices
+        # Get actual number of vertices for this dataset
+        actual_num_vertices = len(dataset_obj.vertices)
+        pred_vertices_actual = pred_vertices[:actual_num_vertices]
         
-        print("="*60)
-        print("DETAILED PREDICTION ANALYSIS")
-        print("="*60)
+        # Convert back to original scale
+        pred_vertices_original = dataset_obj.spatial_scaler.inverse_transform(pred_vertices_actual)
+        true_vertices = dataset_obj.vertices
+        
+        print(f"\n{dataset_name} Analysis:")
+        print("-" * 40)
         
         # Vertex analysis
         vertex_errors = np.linalg.norm(pred_vertices_original - true_vertices, axis=1)
@@ -62,36 +111,39 @@ def analyze_predictions():
         
         # Edge analysis  
         true_edges = set()
-        for edge in dataset.edges:
+        for edge in dataset_obj.edges:
             true_edges.add((min(edge), max(edge)))
         
         predicted_edges = set()
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
-                predicted_edges.add((i, j))
+            if i < actual_num_vertices and j < actual_num_vertices and pred_edge_probs[idx] > 0.5:
+                predicted_edges.add((min(i, j), max(i, j)))
         
-        print(f"\nEdge Prediction Analysis:")
+        print(f"Edge Prediction Analysis:")
         print(f"  True edges: {len(true_edges)}")
         print(f"  Predicted edges: {len(predicted_edges)}")
         print(f"  Correct predictions: {len(true_edges & predicted_edges)}")
         print(f"  False positives: {len(predicted_edges - true_edges)}")
         print(f"  False negatives: {len(true_edges - predicted_edges)}")
         
-        # Edge probability distribution
-        true_edge_probs = []
-        false_edge_probs = []
+        # Calculate metrics
+        tp = len(true_edges & predicted_edges)
+        fp = len(predicted_edges - true_edges)
+        fn = len(true_edges - predicted_edges)
         
-        for idx, (i, j) in enumerate(edge_indices):
-            if (i, j) in true_edges:
-                true_edge_probs.append(pred_edge_probs[idx])
-            else:
-                false_edge_probs.append(pred_edge_probs[idx])
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
         
-        print(f"\nEdge Probability Analysis:")
-        print(f"  True edges probability: {np.mean(true_edge_probs):.6f} ± {np.std(true_edge_probs):.6f}")
-        print(f"  False edges probability: {np.mean(false_edge_probs):.6f} ± {np.std(false_edge_probs):.6f}")
+        print(f"  Precision: {precision:.6f}")
+        print(f"  Recall: {recall:.6f}")
+        print(f"  F1-Score: {f1_score:.6f}")
         
         return {
+            'vertex_rmse': np.sqrt(np.mean(vertex_errors**2)),
+            'edge_precision': precision,
+            'edge_recall': recall,
+            'edge_f1_score': f1_score,
             'vertex_errors': vertex_errors,
             'pred_vertices': pred_vertices_original,
             'true_vertices': true_vertices,
@@ -101,119 +153,121 @@ def analyze_predictions():
             'predicted_edges': predicted_edges
         }
 
+def create_comprehensive_visualizations_for_all():
+    """Create comprehensive visualizations for all test datasets"""
+    print("="*60)
+    print("COMPREHENSIVE EVALUATION FOR ALL TEST DATASETS")
+    print("="*60)
+    
+    # Load pre-trained model
+    model, dataset, device, train_dataset = load_trained_model()
+    
+    print("\nLoading test datasets...")
+    test_dataset = dataset.load_testing_dataset()
+    test_dataset.load_all_data()
+    
+    # Create output directory
+    output_dir = 'output'
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Process each test dataset individually
+    print(f"\nProcessing {len(test_dataset.datasets)} test datasets...")
+    
+    all_results = []
+    
+    for i, individual_dataset in enumerate(test_dataset.datasets):
+        dataset_name = f"test_dataset_{i+1}"
+        
+        # Analyze predictions
+        analysis = analyze_individual_predictions(model, individual_dataset, device, dataset_name)
+        all_results.append({
+            'name': dataset_name,
+            'analysis': analysis
+        })
+        
+        # Create visualizations
+        create_individual_visualizations(model, individual_dataset, device, output_dir, dataset_name)
+    
+    # Create summary report
+    create_summary_report(all_results, output_dir)
+    
+    # Save model
+    torch.save(model.state_dict(), os.path.join(output_dir, 'trained_model.pth'))
+    
+    print("\n" + "="*60)
+    print("✓ COMPREHENSIVE EVALUATION COMPLETE!")
+    print("="*60)
+    print(f"\nGenerated files in '{output_dir}' directory:")
+    for result in all_results:
+        dataset_name = result['name']
+        print(f"  • {dataset_name}/")
+        print(f"    - {dataset_name}_prediction_comparison.png")
+        print(f"    - {dataset_name}_edge_probabilities.png")
+    print("  • summary_report.txt")
+    print("  • trained_model.pth")
+    
+    return all_results
+
+def create_summary_report(results, output_dir):
+    """Create a summary report of all test results"""
+    report_path = os.path.join(output_dir, 'summary_report.txt')
+    
+    with open(report_path, 'w') as f:
+        f.write("="*60 + "\n")
+        f.write("COMPREHENSIVE TEST RESULTS SUMMARY\n")
+        f.write("="*60 + "\n\n")
+        
+        # Overall statistics
+        all_vertex_rmse = [r['analysis']['vertex_rmse'] for r in results]
+        all_precision = [r['analysis']['edge_precision'] for r in results]
+        all_recall = [r['analysis']['edge_recall'] for r in results]
+        all_f1 = [r['analysis']['edge_f1_score'] for r in results]
+        
+        f.write("OVERALL STATISTICS:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"Average Vertex RMSE: {np.mean(all_vertex_rmse):.6f} ± {np.std(all_vertex_rmse):.6f}\n")
+        f.write(f"Average Edge Precision: {np.mean(all_precision):.6f} ± {np.std(all_precision):.6f}\n")
+        f.write(f"Average Edge Recall: {np.mean(all_recall):.6f} ± {np.std(all_recall):.6f}\n")
+        f.write(f"Average Edge F1-Score: {np.mean(all_f1):.6f} ± {np.std(all_f1):.6f}\n\n")
+        
+        # Individual results
+        f.write("INDIVIDUAL RESULTS:\n")
+        f.write("-" * 30 + "\n")
+        for result in results:
+            name = result['name']
+            analysis = result['analysis']
+            f.write(f"{name}:\n")
+            f.write(f"  Vertex RMSE: {analysis['vertex_rmse']:.6f}\n")
+            f.write(f"  Edge Precision: {analysis['edge_precision']:.6f}\n")
+            f.write(f"  Edge Recall: {analysis['edge_recall']:.6f}\n")
+            f.write(f"  Edge F1-Score: {analysis['edge_f1_score']:.6f}\n")
+            f.write(f"  True Edges: {len(analysis['true_edges'])}\n")
+            f.write(f"  Predicted Edges: {len(analysis['predicted_edges'])}\n\n")
+    
+    print(f"✓ Summary report saved to {report_path}")
+
 def create_comprehensive_visualizations():
-    """Create all visualizations showing the results"""
-    print("\nCreating comprehensive visualizations...")
-    
-    model, dataset, device = load_trained_model()
-    
-    # 1. Prediction comparison
-    print("Creating prediction comparison...")
-    fig1 = visualize_prediction_comparison(dataset, model, device)
-    plt.savefig('prediction_comparison.png', dpi=150, bbox_inches='tight')
-    plt.close(fig1)
-    print("✓ Saved: prediction_comparison.png")
-    
-    # 2. Edge probability visualization
-    print("Creating edge probability analysis...")
-    with torch.no_grad():
-        point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
-        predictions = model(point_cloud_tensor)
-        edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
-    
-    fig2 = visualize_edge_probabilities(edge_probs, edge_indices, threshold=0.5)
-    plt.savefig('edge_probabilities.png', dpi=150, bbox_inches='tight')
-    plt.close(fig2)
-    print("✓ Saved: edge_probabilities.png")
-    
-    # 3. Create a simple training loss plot if we had the history
-    # (This would need the loss history from training, but we can create a dummy one)
-    print("Creating training summary...")
-    
-    fig3, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    
-    # Vertex error histogram
-    analysis = analyze_predictions()
-    ax1.hist(analysis['vertex_errors'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-    ax1.set_xlabel('Vertex Error')
-    ax1.set_ylabel('Frequency')
-    ax1.set_title('Distribution of Vertex Prediction Errors')
-    ax1.grid(True, alpha=0.3)
-    
-    # Edge probability comparison
-    true_edge_probs = []
-    false_edge_probs = []
-    for idx, (i, j) in enumerate(analysis['edge_indices']):
-        if (i, j) in analysis['true_edges']:
-            true_edge_probs.append(analysis['edge_probs'][idx])
-        else:
-            false_edge_probs.append(analysis['edge_probs'][idx])
-    
-    ax2.hist([true_edge_probs, false_edge_probs], bins=30, alpha=0.7, 
-             label=['True Edges', 'False Edges'], color=['green', 'red'])
-    ax2.set_xlabel('Edge Probability')
-    ax2.set_ylabel('Frequency')
-    ax2.set_title('Edge Probabilities: True vs False')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    # Model performance summary
-    metrics = ['Vertex RMSE', 'Edge Accuracy', 'Edge Precision', 'Edge Recall', 'Edge F1']
-    values = [0.584, 1.0, 1.0, 1.0, 1.0]  # From your training results
-    colors = ['lightcoral', 'lightgreen', 'lightgreen', 'lightgreen', 'lightgreen']
-    
-    bars = ax3.bar(metrics, values, color=colors, alpha=0.7, edgecolor='black')
-    ax3.set_ylabel('Score')
-    ax3.set_title('Model Performance Metrics')
-    ax3.set_ylim(0, 1.1)
-    ax3.grid(True, alpha=0.3)
-    
-    # Add value labels on bars
-    for bar, value in zip(bars, values):
-        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                f'{value:.3f}', ha='center', va='bottom')
-    
-    # Dataset statistics
-    stats = ['Points', 'Vertices', 'Edges', 'Connections']
-    counts = [len(dataset.point_cloud), len(dataset.vertices), 
-              len(dataset.edges), int(dataset.edge_adjacency_matrix.sum()/2)]
-    
-    ax4.bar(stats, counts, color='lightblue', alpha=0.7, edgecolor='black')
-    ax4.set_ylabel('Count')
-    ax4.set_title('Dataset Statistics')
-    ax4.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for i, (stat, count) in enumerate(zip(stats, counts)):
-        ax4.text(i, count + max(counts)*0.01, str(count), ha='center', va='bottom')
-    
-    plt.tight_layout()
-    plt.savefig('training_summary.png', dpi=150, bbox_inches='tight')
-    plt.close(fig3)
-    print("✓ Saved: training_summary.png")
+    """Original function kept for compatibility"""
+    return create_comprehensive_visualizations_for_all()
 
 if __name__ == "__main__":
     print("="*60)
-    print("COMPREHENSIVE RESULTS ANALYSIS")
+    print("COMPREHENSIVE EVALUATION FOR ALL TEST DATASETS")
     print("="*60)
     
     try:
-        # Analyze predictions
-        analysis = analyze_predictions()
-        
-        # Create visualizations
-        create_comprehensive_visualizations()
+        # Create comprehensive visualizations for all test datasets
+        all_results = create_comprehensive_visualizations_for_all()
         
         print("\n" + "="*60)
-        print("✓ ANALYSIS COMPLETE!")
+        print("✓ EVALUATION COMPLETE!")
         print("="*60)
-        print("\nGenerated files:")
-        print("  • prediction_comparison.png - Side-by-side wireframe comparison")
-        print("  • edge_probabilities.png - Edge probability distributions")
-        print("  • training_summary.png - Complete performance overview")
-        print("\nYour model achieved PERFECT edge connectivity prediction!")
-        print("This demonstrates successful overtraining on the single example.")
+        print("\nCheck the 'output' directory for:")
+        print("  • Individual prediction comparisons for each test dataset")
+        print("  • Edge probability distributions for each test dataset") 
+        print("  • Summary report with all metrics")
+        print("  • Trained model weights")
+        print("\nThe model was trained on all training data and evaluated on all test data!")
         
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
