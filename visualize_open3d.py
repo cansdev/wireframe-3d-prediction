@@ -149,17 +149,22 @@ def visualize_predicted_wireframe():
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
-        pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
-        # Convert back to original scale
+        # Get the predicted vertex count and only use that many vertices
+        predicted_vertex_count = predictions['predicted_vertex_counts'].cpu().numpy()[0]
+        pred_vertices = pred_vertices_full[:predicted_vertex_count]  # Only use predicted count vertices
+        
+        # Convert back to original scale - only the predicted vertices
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
         
-        # Create predicted edges (threshold at 0.5)
+        # Create predicted edges (threshold at 0.5) - only for predicted vertices
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
+            # Only include edges between vertices that actually exist in predicted count
+            if i < predicted_vertex_count and j < predicted_vertex_count and pred_edge_probs[idx] > 0.5:
                 pred_edges.append([i, j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     
@@ -205,17 +210,22 @@ def visualize_comparison_overlay():
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
-        pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
-        # Convert back to original scale
+        # Get the predicted vertex count and only use that many vertices
+        predicted_vertex_count = predictions['predicted_vertex_counts'].cpu().numpy()[0]
+        pred_vertices = pred_vertices_full[:predicted_vertex_count]  # Only use predicted count vertices
+        
+        # Convert back to original scale - only the predicted vertices
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
         
-        # Create predicted edges (threshold at 0.5)
+        # Create predicted edges (threshold at 0.5) - only for predicted vertices
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
+            # Only include edges between vertices that actually exist in predicted count
+            if i < predicted_vertex_count and j < predicted_vertex_count and pred_edge_probs[idx] > 0.5:
                 pred_edges.append([i, j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     
@@ -277,17 +287,22 @@ def visualize_comprehensive():
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
-        pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
-        # Convert back to original scale
+        # Get the predicted vertex count and only use that many vertices
+        predicted_vertex_count = predictions['predicted_vertex_counts'].cpu().numpy()[0]
+        pred_vertices = pred_vertices_full[:predicted_vertex_count]  # Only use predicted count vertices
+        
+        # Convert back to original scale - only the predicted vertices
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
         
-        # Create predicted edges (threshold at 0.5)
+        # Create predicted edges (threshold at 0.5) - only for predicted vertices
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
+            # Only include edges between vertices that actually exist in predicted count
+            if i < predicted_vertex_count and j < predicted_vertex_count and pred_edge_probs[idx] > 0.5:
                 pred_edges.append([i, j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     
@@ -359,15 +374,20 @@ def save_high_quality_images():
         point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
         predictions = model(point_cloud_tensor)
         
-        pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
+        
+        # Get the predicted vertex count and only use that many vertices
+        predicted_vertex_count = predictions['predicted_vertex_counts'].cpu().numpy()[0]
+        pred_vertices = pred_vertices_full[:predicted_vertex_count]  # Only use predicted count vertices
         
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
         
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
+            # Only include edges between vertices that actually exist in predicted count
+            if i < predicted_vertex_count and j < predicted_vertex_count and pred_edge_probs[idx] > 0.5:
                 pred_edges.append([i, j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     

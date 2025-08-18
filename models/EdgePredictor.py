@@ -4,18 +4,23 @@ import torch.nn as nn
 class EdgePredictor(nn.Module):
     """Predict edge connectivity between vertices"""
     
-    def __init__(self, vertex_dim=3, hidden_dim=128):
+    def __init__(self, vertex_dim=3, hidden_dim=512):  # Increased capacity for batch training
         super(EdgePredictor, self).__init__()
         
-        # Edge features are concatenated vertex features
+        # Enhanced edge predictor with more capacity
         self.edge_mlp = nn.Sequential(
             nn.Linear(vertex_dim * 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
+            nn.Dropout(0.1),  # Reduced dropout for batch training
             nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.2),
-            nn.Linear(hidden_dim // 2, 1),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.LayerNorm(hidden_dim // 4),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim // 4, 1),
             nn.Sigmoid()
         )
         
