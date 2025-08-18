@@ -5,11 +5,12 @@ import torch.nn as nn
 class WireframeLoss(nn.Module):
     """Combined loss for vertex position, edge connectivity, and vertex count"""
     
-    def __init__(self, vertex_weight=1.0, edge_weight=1.0, count_weight=0.1):
+    def __init__(self, vertex_weight=1.0, edge_weight=1.0, count_weight=0.1, sparsity_weight=0.5):
         super(WireframeLoss, self).__init__()
         self.vertex_weight = vertex_weight
         self.edge_weight = edge_weight
         self.count_weight = count_weight
+        self.sparsity_weight = sparsity_weight
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         self.ce_loss = nn.CrossEntropyLoss()
@@ -58,18 +59,28 @@ class WireframeLoss(nn.Module):
         count_loss = torch.tensor(0.0, device=pred_vertices.device)
         if 'vertex_count_probs' in predictions and 'vertex_counts' in targets:
             pred_count_probs = predictions['vertex_count_probs']
-            target_counts = targets['vertex_counts'] - 1  # Adjust for 0-indexing
+            target_counts = targets['vertex_counts']  # Remove the -1 adjustment since we're now 0-indexed
             target_counts = torch.clamp(target_counts, 0, pred_count_probs.shape[1] - 1)
             count_loss = self.ce_loss(pred_count_probs, target_counts)
+        
+        # Add sparsity loss - penalize predicted vertex count more aggressively
+        sparsity_loss = torch.tensor(0.0, device=pred_vertices.device)
+        if 'predicted_vertex_counts' in predictions:
+            pred_counts = predictions['predicted_vertex_counts'].float()
+            target_counts_float = targets['vertex_counts'].float()
+            # Use L2 loss for stronger penalty on large deviations
+            sparsity_loss = ((pred_counts - target_counts_float) ** 2).mean()
         
         # Combined loss
         total_loss = (self.vertex_weight * vertex_loss + 
                      self.edge_weight * edge_loss + 
-                     self.count_weight * count_loss)
+                     self.count_weight * count_loss +
+                     self.sparsity_weight * sparsity_loss)
         
         return {
             'total_loss': total_loss,
             'vertex_loss': vertex_loss,
             'edge_loss': edge_loss,
-            'count_loss': count_loss
+            'count_loss': count_loss,
+            'sparsity_loss': sparsity_loss
         }

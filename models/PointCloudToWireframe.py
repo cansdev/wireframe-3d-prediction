@@ -34,6 +34,16 @@ class PointCloudToWireframe(nn.Module):
         vertex_output = self.vertex_predictor(global_features, target_vertex_counts)
         predicted_vertices = vertex_output['vertices']
         
+        # During training, apply hard constraint on vertex count
+        if self.training and target_vertex_counts is not None:
+            # Mask out vertices beyond target count
+            batch_size = predicted_vertices.shape[0]
+            for i in range(batch_size):
+                count = target_vertex_counts[i].item()
+                if count < self.max_vertices:
+                    # Zero out vertices beyond the target count
+                    predicted_vertices[i, count:, :] = 0.0
+        
         # For edge prediction, we need to mask out unused vertices
         batch_size = predicted_vertices.shape[0]
         

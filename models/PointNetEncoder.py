@@ -5,7 +5,7 @@ import torch.nn as nn
 class PointNetEncoder(nn.Module):
     """Massive PointNet encoder for total overfitting"""
     
-    def __init__(self, input_dim=8, hidden_dims=[256, 512, 1024], output_dim=512):
+    def __init__(self, input_dim=8, hidden_dims=[512, 1024, 2048, 1024], output_dim=512):  # Increased capacity for batch training
         super(PointNetEncoder, self).__init__()
         
         layers = []
@@ -28,9 +28,13 @@ class PointNetEncoder(nn.Module):
         self.global_max_pool = nn.AdaptiveMaxPool1d(1)
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         
-        # Larger feature fusion for more capacity
+        # Enhanced feature fusion with more capacity for batch training
         self.feature_fusion = nn.Sequential(
-            nn.Linear(output_dim * 2, output_dim * 2),
+            nn.Linear(output_dim * 2, output_dim * 4),  # Increased capacity
+            nn.LayerNorm(output_dim * 4),
+            nn.ReLU(inplace=True),
+            nn.Linear(output_dim * 4, output_dim * 2),
+            nn.LayerNorm(output_dim * 2),
             nn.ReLU(inplace=True),
             nn.Linear(output_dim * 2, output_dim)
         )

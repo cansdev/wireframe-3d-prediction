@@ -33,7 +33,7 @@ def main():
 
     batch_data = train_dataset.get_batch_data(target_points=1024)
 
-    model, loss_history = train_overfit_model(batch_data, num_epochs=1000, learning_rate=0.002)
+    model, loss_history = train_overfit_model(batch_data, num_epochs=1000, learning_rate=0.001)
 
     print("\n" + "="*50)
     print("EVALUATING TRAINED MODEL")

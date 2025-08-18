@@ -65,8 +65,13 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         actual_vertex_counts.append(len(dataset.vertices))
     actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
     
-    # Create model with dynamic vertices
+    # Create model with increased capacity for batch training
     model = PointCloudToWireframe(input_dim=8, max_vertices=max_vertices).to(device)
+    
+    # Print model parameters for verification
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Model parameters: Total={total_params:,}, Trainable={trainable_params:,}")
     
     # Prepare data tensors
     point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
@@ -92,10 +97,15 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     else:
         edge_labels_batch = torch.zeros(batch_size, 0).to(device)
     
-    criterion = WireframeLoss(vertex_weight=50.0, edge_weight=0.1, count_weight=1.0)
+    criterion = WireframeLoss(
+        vertex_weight=5.0,      # Reduced to focus more on count
+        edge_weight=1.0,        # Slightly increased
+        count_weight=100.0,     # Dramatically increased from 50.0
+        sparsity_weight=50.0    # Dramatically increased from 25.0
+    )  # More aggressive penalties for vertex count
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)
     # More aggressive learning rate schedule
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400, 700, 1700, 4000], gamma=0.3)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400, 600, 750, 850], gamma=0.3)
     
     # Training loop
     model.train()
@@ -108,7 +118,14 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     patience_counter = 0
     current_vertex_rmse = 999999
 
-    logger.info(f"Starting vertex-optimized for {num_epochs} epochs...")
+    logger.info("=" * 80)
+    logger.info(f"Starting batch training for {num_epochs} epochs...")
+    logger.info(f"Batch size: {batch_size}")
+    logger.info(f"Max vertices: {max_vertices}")
+    logger.info(f"Target vertex counts: {actual_vertex_counts.cpu().numpy()}")
+    logger.info(f"Loss weights - Vertex: {criterion.vertex_weight}, Edge: {criterion.edge_weight}, Count: {criterion.count_weight}, Sparsity: {criterion.sparsity_weight}")
+    logger.info(f"Learning rate: {learning_rate}")
+    logger.info("=" * 80)
     start_time = time.time()
     
     for epoch in range(num_epochs):
@@ -169,16 +186,45 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
             logger.info(f"Early stopping at epoch {epoch}! Vertex RMSE hasn't improved for {patience} epochs")
             break
 
-        # Log progress 
-        if epoch % 100 == 0 or epoch == num_epochs - 1:
+        # Log progress with detailed metrics every 20 epochs
+        if epoch % 20 == 0 or epoch == num_epochs - 1:
             elapsed_time = time.time() - start_time
+            
+            # Get current learning rate
+            current_lr = scheduler.get_last_lr()[0]
+            
+            # Calculate additional metrics for logging
+            with torch.no_grad():
+                # Count accuracy (how often we predict the exact vertex count)
+                pred_counts = predictions['predicted_vertex_counts'].cpu().numpy()
+                true_counts = actual_vertex_counts.cpu().numpy()
+                count_accuracy = np.mean(pred_counts == true_counts) * 100
+                
+                # Average count error
+                count_error = np.mean(np.abs(pred_counts - true_counts))
+                
+                # Max count error
+                max_count_error = np.max(np.abs(pred_counts - true_counts))
+            
             logger.info(f"Epoch {epoch:4d}/{num_epochs} | "
-                       f"Total Loss: {total_loss.item():.6f} | "
-                       f"Vertex Loss: {loss_dict['vertex_loss'].item():.6f} | "
-                       f"Edge Loss: {loss_dict['edge_loss'].item():.6f} | "
-                       f"Vertex RMSE: {current_vertex_rmse:.6f} | "
-                       f"LR: {scheduler.get_last_lr()[0]:.6f} | "
+                       f"Total: {total_loss.item():.6f} | "
+                       f"Vertex: {loss_dict['vertex_loss'].item():.6f} | "
+                       f"Edge: {loss_dict['edge_loss'].item():.6f} | "
+                       f"Count: {loss_dict['count_loss'].item():.6f} | "
+                       f"Sparsity: {loss_dict['sparsity_loss'].item():.6f}")
+            
+            logger.info(f"           RMSE: {current_vertex_rmse:.6f} | "
+                       f"Count Acc: {count_accuracy:.1f}% | "
+                       f"Count Err: {count_error:.2f} | "
+                       f"Max Err: {max_count_error:.0f} | "
+                       f"LR: {current_lr:.8f} | "
                        f"Time: {elapsed_time:.1f}s")
+            
+            # Log predicted vs target counts for first few samples
+            if epoch % 100 == 0 or epoch == num_epochs - 1:
+                logger.info(f"           Pred counts: {pred_counts[:min(len(pred_counts), 7)]}")
+                logger.info(f"           True counts: {true_counts[:min(len(true_counts), 7)]}")
+                logger.info("-" * 80)  # Add separator line for readability
             
     # Load the best model state before returning
     if best_model_state is not None:
@@ -207,38 +253,79 @@ def evaluate_model(model, batch_data, device, max_vertices):
         # Prepare input - convert entire batch
         point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
         
-        # Forward pass on entire batch
-        predictions = model(point_cloud_tensor)
+        # Get actual vertex counts for evaluation
+        actual_vertex_counts = []
+        for dataset in original_datasets:
+            actual_vertex_counts.append(len(dataset.vertices))
+        actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
+        
+        # Forward pass on entire batch WITH vertex counts to help prediction
+        predictions = model(point_cloud_tensor, actual_vertex_counts)
         
         # Process each sample in the batch
         for i in range(len(point_clouds)):
             # Get predictions for this sample
-            pred_vertices = predictions['vertices'][i].cpu().numpy()
+            pred_vertices_full = predictions['vertices'][i].cpu().numpy()
             pred_edge_probs = predictions['edge_probs'][i].cpu().numpy()
             edge_indices = predictions['edge_indices']
-            predicted_vertex_counts = predictions['predicted_vertex_counts'][i].cpu().numpy()
+            
+            # Get the PREDICTED vertex count (not the full array)
+            predicted_vertex_count = predictions['predicted_vertex_counts'][i].item()
+            
+            # Apply stricter thresholding for vertex count
+            vertex_count_probs = predictions['vertex_count_probs'][i].cpu().numpy()
+            confidence_threshold = 0.5  # Lowered from 0.7
+            
+            # Find the highest probability count
+            max_prob_idx = vertex_count_probs.argmax()
+            max_prob = vertex_count_probs[max_prob_idx]
+            
+            if max_prob >= confidence_threshold:
+                predicted_vertex_count = int(max_prob_idx)  # Direct indexing since we're 0-indexed now
+            else:
+                # If no high confidence, use weighted average of top-3 predictions
+                top_k = 3
+                top_indices = vertex_count_probs.argsort()[-top_k:]
+                top_probs = vertex_count_probs[top_indices]
+                top_probs = top_probs / top_probs.sum()  # Normalize
+                predicted_vertex_count = int(np.round(np.sum(top_indices * top_probs)))
+            
+            # Hard limit to prevent over-prediction
+            actual_vertex_count = len(original_datasets[i].vertices)
+            # Be more conservative - aim for slightly fewer vertices
+            predicted_vertex_count = min(predicted_vertex_count, actual_vertex_count)
+            
+            # Additional filtering: if predicted count is way too high, use actual count
+            if predicted_vertex_count > actual_vertex_count * 1.5:
+                predicted_vertex_count = actual_vertex_count
+            
+            # CRITICAL: Only use vertices up to the predicted count
+            pred_vertices = pred_vertices_full[:predicted_vertex_count]  # This removes extra dots!
             
             # Get original dataset for this sample
             original_dataset = original_datasets[i]
             scaler = scalers[i]
             
-            # Get the actual number of vertices (not padded)
-            actual_num_vertices = len(original_dataset.vertices)
+            # Convert back to original scale - only the predicted vertices
+            if predicted_vertex_count > 0:
+                pred_vertices_original = scaler.inverse_transform(pred_vertices)
+            else:
+                pred_vertices_original = np.array([]).reshape(0, 3)
             
-            # Only take the actual vertices, not the padded ones
-            pred_vertices_actual = pred_vertices[:actual_num_vertices]
-            
-            # Convert back to original scale
-            pred_vertices_original = scaler.inverse_transform(pred_vertices_actual)
             true_vertices_original = original_dataset.vertices
             
-            # Calculate metrics
-            vertex_mse = np.mean((pred_vertices_original - true_vertices_original) ** 2)
-            vertex_rmse = np.sqrt(vertex_mse)
+            # Calculate metrics only on actual predicted vertices
+            if predicted_vertex_count > 0 and len(true_vertices_original) > 0:
+                # For RMSE, compare only up to min of predicted and true counts
+                min_count = min(predicted_vertex_count, len(true_vertices_original))
+                vertex_mse = np.mean((pred_vertices_original[:min_count] - true_vertices_original[:min_count]) ** 2)
+                vertex_rmse = np.sqrt(vertex_mse)
+            else:
+                vertex_rmse = float('inf')
             
             # Edge accuracy (threshold at 0.5)
             # Use the predicted number of vertices for edge evaluation
-            predicted_num_vertices = int(predicted_vertex_counts)
+            predicted_num_vertices = predicted_vertex_count  # Fix variable name
             
             # Generate edge indices for the predicted number of vertices
             predicted_edge_indices = [(j, k) for j in range(predicted_num_vertices) for k in range(j+1, predicted_num_vertices)]
@@ -284,9 +371,11 @@ def evaluate_model(model, batch_data, device, max_vertices):
                 'edge_precision': precision,
                 'edge_recall': recall,
                 'edge_f1_score': f1_score,
-                'predicted_vertices': pred_vertices_original,
+                'predicted_vertices': pred_vertices_original,  # Only predicted count vertices
                 'predicted_adjacency': pred_adj_matrix,
-                'edge_probabilities': pred_edge_probs
+                'edge_probabilities': pred_edge_probs,
+                'predicted_vertex_count': predicted_vertex_count,  # Add this for debugging
+                'true_vertex_count': len(true_vertices_original)
             }
             
             results.append(result)
