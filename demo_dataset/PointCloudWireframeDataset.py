@@ -20,7 +20,7 @@ class PointCloudWireframeDataset:
             raise ValueError("file_pairs must be a non-empty list of file pair dictionaries")
             
         self.file_pairs = file_pairs
-        self.datasets = []  # Will store individual dataset objects
+        self.samples = []  # Will store individual sample objects
         self.max_vertices = 0
         self.max_points = 0
         
@@ -31,30 +31,30 @@ class PointCloudWireframeDataset:
         for i, file_pair in enumerate(self.file_pairs):
             logger.info(f"Processing file pair {i+1}/{len(self.file_pairs)}")
             
-            # Create individual dataset for this file pair
-            individual_dataset = IndividualDataset(
+            # Create individual sample for this file pair
+            individual_sample = IndividualSample(
                 file_pair['pointcloud'], 
                 file_pair['wireframe']
             )
             
             # Load and process data
-            individual_dataset.load_point_cloud()
-            individual_dataset.load_wireframe()
-            individual_dataset.create_adjacency_matrix()
-            individual_dataset.normalize_data()
+            individual_sample.load_point_cloud()
+            individual_sample.load_wireframe()
+            individual_sample.create_adjacency_matrix()
+            individual_sample.normalize_data()
             
-            self.datasets.append(individual_dataset)
+            self.samples.append(individual_sample)
             
             # Track maximum sizes
-            self.max_vertices = max(self.max_vertices, len(individual_dataset.vertices))
-            self.max_points = max(self.max_points, len(individual_dataset.point_cloud))
+            self.max_vertices = max(self.max_vertices, len(individual_sample.vertices))
+            self.max_points = max(self.max_points, len(individual_sample.point_cloud))
         
-        logger.info(f"Loaded {len(self.datasets)} datasets")
+        logger.info(f"Loaded {len(self.samples)} samples")
         logger.info(f"Max vertices: {self.max_vertices}, Max points: {self.max_points}")
         
     def get_batch_data(self, target_points=1024):
-        """Get all datasets as batched tensors for training"""
-        if not self.datasets:
+        """Get all samples as batched tensors for training"""
+        if not self.samples:
             raise ValueError("Must call load_all_data() first")
             
         batch_point_clouds = []
@@ -62,27 +62,27 @@ class PointCloudWireframeDataset:
         batch_adjacency_matrices = []
         batch_scalers = []
         
-        for dataset in self.datasets:
+        for sample in self.samples:
             # Pad or sample point cloud to fixed size
-            fixed_pc = self.pad_or_sample_pointcloud(dataset.normalized_point_cloud, target_points)
+            fixed_pc = self.pad_or_sample_pointcloud(sample.normalized_point_cloud, target_points)
             batch_point_clouds.append(fixed_pc)
             
             # Pad vertices to max_vertices
-            padded_vertices = self.pad_vertices(dataset.normalized_vertices, self.max_vertices)
+            padded_vertices = self.pad_vertices(sample.normalized_vertices, self.max_vertices)
             batch_vertices.append(padded_vertices)
             
             # Pad adjacency matrix
-            padded_adj = self.pad_adjacency_matrix(dataset.edge_adjacency_matrix, self.max_vertices)
+            padded_adj = self.pad_adjacency_matrix(sample.edge_adjacency_matrix, self.max_vertices)
             batch_adjacency_matrices.append(padded_adj)
             
-            batch_scalers.append(dataset.spatial_scaler)
+            batch_scalers.append(sample.spatial_scaler)
         
         return {
             'point_clouds': np.array(batch_point_clouds),
             'vertices': np.array(batch_vertices),
             'adjacency_matrices': np.array(batch_adjacency_matrices),
             'scalers': batch_scalers,
-            'original_datasets': self.datasets
+            'original_samples': self.samples
         }
     
     def pad_or_sample_pointcloud(self, point_cloud, target_size):
@@ -118,8 +118,8 @@ class PointCloudWireframeDataset:
             padded_adj[:current_size, :current_size] = adj_matrix
             return padded_adj
 
-class IndividualDataset:
-    """Dataset class for loading and preprocessing point cloud and wireframe data"""
+class IndividualSample:
+    """Sample class for loading and preprocessing point cloud and wireframe data"""
     
     def __init__(self, xyz_file, obj_file):
         self.xyz_file = xyz_file

@@ -26,11 +26,14 @@ def main():
     print("="*60)
 
     # Load training dataset with multiple files
+    # Initializes sample object
     train_dataset = dataset.load_training_dataset()
     
     # Load and preprocess all training data at once
+    # Creates sample object, loads data, creates adjacency matrix, normalizes data
     train_dataset.load_all_data()
 
+    # Gets batch data
     batch_data = train_dataset.get_batch_data(target_points=1024)
 
     model, loss_history = train_overfit_model(batch_data, num_epochs=1000, learning_rate=0.001)
@@ -53,7 +56,7 @@ def main():
     print("\nTest Results:")
     print("-" * 40)
     for result in test_results:
-        print(f"Test Dataset {result['dataset_index']+1}:")
+        print(f"Sample {result['sample_index']+1}:")
         print(f"  Vertex RMSE: {result['vertex_rmse']:.6f}")
         print(f"  Edge Accuracy: {result['edge_accuracy']:.6f}")
         print(f"  Edge Precision: {result['edge_precision']:.6f}")

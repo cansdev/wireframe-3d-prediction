@@ -46,43 +46,43 @@ def load_trained_model():
     
     return model, dataset, device, train_dataset
 
-def create_individual_visualizations(model, dataset_obj, device, output_dir, dataset_name):
-    """Create comprehensive visualizations for a single dataset"""
-    print(f"Creating visualizations for {dataset_name}...")
+def create_individual_visualizations(model, sample_obj, device, output_dir, sample_name):
+    """Create comprehensive visualizations for a single sample"""
+    print(f"Creating visualizations for {sample_name}...")
     
-    # Create dataset-specific output directory
-    dataset_output_dir = os.path.join(output_dir, dataset_name)
-    os.makedirs(dataset_output_dir, exist_ok=True)
+    # Create sample-specific output directory
+    sample_output_dir = os.path.join(output_dir, sample_name)
+    os.makedirs(sample_output_dir, exist_ok=True)
     
     # Create prediction comparison
-    fig1 = visualize_prediction_comparison(dataset_obj, model, device)
-    fig1.savefig(os.path.join(dataset_output_dir, f'{dataset_name}_prediction_comparison.png'), 
+    fig1 = visualize_prediction_comparison(sample_obj, model, device)
+    fig1.savefig(os.path.join(sample_output_dir, f'{sample_name}_prediction_comparison.png'), 
                  dpi=150, bbox_inches='tight')
     plt.close(fig1)
     
     # Get predictions for edge probability visualization
     model.eval()
     with torch.no_grad():
-        point_cloud_tensor = torch.FloatTensor(dataset_obj.normalized_point_cloud).unsqueeze(0).to(device)
+        point_cloud_tensor = torch.FloatTensor(sample_obj.normalized_point_cloud).unsqueeze(0).to(device)
         predictions = model(point_cloud_tensor)
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
     
     # Create edge probability visualization
     fig2 = visualize_edge_probabilities(pred_edge_probs, edge_indices)
-    fig2.savefig(os.path.join(dataset_output_dir, f'{dataset_name}_edge_probabilities.png'), 
+    fig2.savefig(os.path.join(sample_output_dir, f'{sample_name}_edge_probabilities.png'), 
                  dpi=150, bbox_inches='tight')
     plt.close(fig2)
     
-    print(f"✓ Saved visualizations for {dataset_name} in {dataset_output_dir}")
+    print(f"✓ Saved visualizations for {sample_name} in {sample_output_dir}")
 
-def analyze_individual_predictions(model, dataset_obj, device, dataset_name):
-    """Analyze predictions for a single dataset"""
+def analyze_individual_predictions(model, sample_obj, device, sample_name):
+    """Analyze predictions for a single sample"""
     model.eval()
     
     with torch.no_grad():
         # Get predictions
-        point_cloud_tensor = torch.FloatTensor(dataset_obj.normalized_point_cloud).unsqueeze(0).to(device)
+        point_cloud_tensor = torch.FloatTensor(sample_obj.normalized_point_cloud).unsqueeze(0).to(device)
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
@@ -91,14 +91,14 @@ def analyze_individual_predictions(model, dataset_obj, device, dataset_name):
         edge_indices = predictions['edge_indices']
         
         # Get actual number of vertices for this dataset
-        actual_num_vertices = len(dataset_obj.vertices)
+        actual_num_vertices = len(sample_obj.vertices)
         pred_vertices_actual = pred_vertices[:actual_num_vertices]
         
         # Convert back to original scale
-        pred_vertices_original = dataset_obj.spatial_scaler.inverse_transform(pred_vertices_actual)
-        true_vertices = dataset_obj.vertices
+        pred_vertices_original = sample_obj.spatial_scaler.inverse_transform(pred_vertices_actual)
+        true_vertices = sample_obj.vertices
         
-        print(f"\n{dataset_name} Analysis:")
+        print(f"\n{sample_name} Analysis:")
         print("-" * 40)
         
         # Vertex analysis
@@ -111,7 +111,7 @@ def analyze_individual_predictions(model, dataset_obj, device, dataset_name):
         
         # Edge analysis  
         true_edges = set()
-        for edge in dataset_obj.edges:
+        for edge in sample_obj.edges:
             true_edges.add((min(edge), max(edge)))
         
         predicted_edges = set()
@@ -171,22 +171,22 @@ def create_comprehensive_visualizations_for_all():
     os.makedirs(output_dir, exist_ok=True)
     
     # Process each test dataset individually
-    print(f"\nProcessing {len(test_dataset.datasets)} test datasets...")
+    print(f"\nProcessing {len(test_dataset.samples)} test samples...")
     
     all_results = []
     
-    for i, individual_dataset in enumerate(test_dataset.datasets):
-        dataset_name = f"test_dataset_{i+1}"
+    for i, individual_sample in enumerate(test_dataset.samples):
+        sample_name = f"test_sample_{i+1}"
         
         # Analyze predictions
-        analysis = analyze_individual_predictions(model, individual_dataset, device, dataset_name)
+        analysis = analyze_individual_predictions(model, individual_sample, device, sample_name)
         all_results.append({
-            'name': dataset_name,
+            'name': sample_name,
             'analysis': analysis
         })
         
         # Create visualizations
-        create_individual_visualizations(model, individual_dataset, device, output_dir, dataset_name)
+        create_individual_visualizations(model, individual_sample, device, output_dir, sample_name)
     
     # Create summary report
     create_summary_report(all_results, output_dir)
@@ -199,10 +199,10 @@ def create_comprehensive_visualizations_for_all():
     print("="*60)
     print(f"\nGenerated files in '{output_dir}' directory:")
     for result in all_results:
-        dataset_name = result['name']
-        print(f"  • {dataset_name}/")
-        print(f"    - {dataset_name}_prediction_comparison.png")
-        print(f"    - {dataset_name}_edge_probabilities.png")
+        sample_name = result['name']
+        print(f"  • {sample_name}/")
+        print(f"    - {sample_name}_prediction_comparison.png")
+        print(f"    - {sample_name}_edge_probabilities.png")
     print("  • summary_report.txt")
     print("  • trained_model.pth")
     

@@ -53,7 +53,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     point_clouds = batch_data['point_clouds']  # Shape: (batch_size, num_points, 3)
     vertices = batch_data['vertices']  # Shape: (batch_size, max_vertices, 3)
     adjacency_matrices = batch_data['adjacency_matrices']  # Shape: (batch_size, max_vertices, max_vertices)
-    original_datasets = batch_data['original_datasets']
+    original_samples = batch_data['original_samples']
     
     # Get dimensions
     batch_size, num_points, _ = point_clouds.shape
@@ -61,8 +61,8 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     
     # Extract actual vertex counts for each sample
     actual_vertex_counts = []
-    for dataset in original_datasets:
-        actual_vertex_counts.append(len(dataset.vertices))
+    for sample in original_samples:
+        actual_vertex_counts.append(len(sample.vertices))
     actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
     
     # Create model with increased capacity for batch training
@@ -245,7 +245,7 @@ def evaluate_model(model, batch_data, device, max_vertices):
     vertices = batch_data['vertices']
     adjacency_matrices = batch_data['adjacency_matrices']
     scalers = batch_data['scalers']
-    original_datasets = batch_data['original_datasets']
+    original_samples = batch_data['original_samples']
     
     results = []
     
@@ -255,8 +255,8 @@ def evaluate_model(model, batch_data, device, max_vertices):
         
         # Get actual vertex counts for evaluation
         actual_vertex_counts = []
-        for dataset in original_datasets:
-            actual_vertex_counts.append(len(dataset.vertices))
+        for sample in original_samples:
+            actual_vertex_counts.append(len(sample.vertices))
         actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
         
         # Forward pass on entire batch WITH vertex counts to help prediction
@@ -291,7 +291,7 @@ def evaluate_model(model, batch_data, device, max_vertices):
                 predicted_vertex_count = int(np.round(np.sum(top_indices * top_probs)))
             
             # Hard limit to prevent over-prediction
-            actual_vertex_count = len(original_datasets[i].vertices)
+            actual_vertex_count = len(original_samples[i].vertices)
             # Be more conservative - aim for slightly fewer vertices
             predicted_vertex_count = min(predicted_vertex_count, actual_vertex_count)
             
@@ -302,8 +302,8 @@ def evaluate_model(model, batch_data, device, max_vertices):
             # CRITICAL: Only use vertices up to the predicted count
             pred_vertices = pred_vertices_full[:predicted_vertex_count]  # This removes extra dots!
             
-            # Get original dataset for this sample
-            original_dataset = original_datasets[i]
+            # Get original sample for this sample
+            original_sample = original_samples[i]
             scaler = scalers[i]
             
             # Convert back to original scale - only the predicted vertices
@@ -312,7 +312,7 @@ def evaluate_model(model, batch_data, device, max_vertices):
             else:
                 pred_vertices_original = np.array([]).reshape(0, 3)
             
-            true_vertices_original = original_dataset.vertices
+            true_vertices_original = original_sample.vertices
             
             # Calculate metrics only on actual predicted vertices
             if predicted_vertex_count > 0 and len(true_vertices_original) > 0:
@@ -342,7 +342,7 @@ def evaluate_model(model, batch_data, device, max_vertices):
             )[0].numpy()
             
             # Get original adjacency matrix
-            true_adj_matrix = original_dataset.edge_adjacency_matrix
+            true_adj_matrix = original_sample.edge_adjacency_matrix
             
             # Resize true adjacency matrix to match predicted size
             true_adj_resized = np.zeros((predicted_num_vertices, predicted_num_vertices))
@@ -365,7 +365,7 @@ def evaluate_model(model, batch_data, device, max_vertices):
             f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
             
             result = {
-                'dataset_index': i,
+                'sample_index': i,
                 'vertex_rmse': vertex_rmse,
                 'edge_accuracy': edge_accuracy,
                 'edge_precision': precision,

@@ -21,3 +21,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# PNG files
+*.png
+
+# PyTorch model files
+*.pth
