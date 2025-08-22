@@ -59,7 +59,6 @@ class PointCloudWireframeDataset:
             
         batch_point_clouds = []
         batch_vertices = []
-        batch_adjacency_matrices = []
         batch_scalers = []
         
         for sample in self.samples:
@@ -71,16 +70,11 @@ class PointCloudWireframeDataset:
             padded_vertices = self.pad_vertices(sample.normalized_vertices, self.max_vertices)
             batch_vertices.append(padded_vertices)
             
-            # Pad adjacency matrix
-            padded_adj = self.pad_adjacency_matrix(sample.edge_adjacency_matrix, self.max_vertices)
-            batch_adjacency_matrices.append(padded_adj)
-            
             batch_scalers.append(sample.spatial_scaler)
         
         return {
             'point_clouds': np.array(batch_point_clouds),
             'vertices': np.array(batch_vertices),
-            'adjacency_matrices': np.array(batch_adjacency_matrices),
             'scalers': batch_scalers,
             'original_samples': self.samples
         }
@@ -108,15 +102,14 @@ class PointCloudWireframeDataset:
             padding = np.zeros((pad_size, 3))
             return np.vstack([vertices, padding])
     
-    def pad_adjacency_matrix(self, adj_matrix, max_vertices):
-        """Pad adjacency matrix to max_vertices x max_vertices"""
-        current_size = adj_matrix.shape[0]
-        if current_size >= max_vertices:
-            return adj_matrix[:max_vertices, :max_vertices]
-        else:
-            padded_adj = np.zeros((max_vertices, max_vertices))
-            padded_adj[:current_size, :current_size] = adj_matrix
-            return padded_adj
+    def get_edge_set(self, sample):
+        """Get edge set from sample edges for label creation"""
+        edge_set = set()
+        for edge in sample.edges:
+            v1, v2 = edge[0], edge[1]
+            # Store as (min, max) to ensure consistent ordering
+            edge_set.add((min(v1, v2), max(v1, v2)))
+        return edge_set
 
 class IndividualSample:
     """Sample class for loading and preprocessing point cloud and wireframe data"""
@@ -127,7 +120,8 @@ class IndividualSample:
         self.point_cloud = None
         self.vertices = None
         self.edges = None
-        self.edge_adjacency_matrix = None
+        self.edge_adjacency_matrix = None  # Keep for backward compatibility
+        self.edge_set = None
         
     def load_point_cloud(self):
         """Load point cloud data from XYZ file"""
@@ -174,17 +168,22 @@ class IndividualSample:
         return self.vertices, self.edges
     
     def create_adjacency_matrix(self):
-        """Create adjacency matrix from edges"""
+        """Create adjacency matrix from edges (kept for backward compatibility)"""
         if self.vertices is None or self.edges is None:
             raise ValueError("Must load wireframe data first")
             
         n_vertices = len(self.vertices)
         self.edge_adjacency_matrix = np.zeros((n_vertices, n_vertices))
         
+        # Create edge set for efficient lookup
+        self.edge_set = set()
+        
         for edge in self.edges:
             v1, v2 = edge[0], edge[1]
             self.edge_adjacency_matrix[v1, v2] = 1
             self.edge_adjacency_matrix[v2, v1] = 1  # Undirected graph
+            # Store in edge set as (min, max) for consistent ordering
+            self.edge_set.add((min(v1, v2), max(v1, v2)))
             
         return self.edge_adjacency_matrix
     

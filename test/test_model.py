@@ -18,7 +18,7 @@ def test_data_loading():
     print(f"✓ Point cloud loaded: {dataset.point_cloud.shape}")
     print(f"✓ Vertices loaded: {dataset.vertices.shape}")
     print(f"✓ Edges loaded: {dataset.edges.shape}")
-    print(f"✓ Adjacency matrix: {dataset.edge_adjacency_matrix.shape}")
+    print(f"✓ Edge set: {len(dataset.edge_set)} edges" if hasattr(dataset, 'edge_set') and dataset.edge_set else f"✓ Adjacency matrix: {dataset.edge_adjacency_matrix.shape}")
     print(f"✓ Normalized point cloud: {dataset.normalized_point_cloud.shape}")
     
     # Check data ranges
@@ -31,7 +31,10 @@ def test_data_loading():
     print(f"                  Z[{dataset.vertices[:, 2].min():.1f}, {dataset.vertices[:, 2].max():.1f}]")
     
     print(f"Number of edges: {len(dataset.edges)}")
-    print(f"Edge connectivity: {dataset.edge_adjacency_matrix.sum() / 2:.0f} connections")
+    if hasattr(dataset, 'edge_set') and dataset.edge_set:
+        print(f"Edge connectivity: {len(dataset.edge_set)} connections")
+    else:
+        print(f"Edge connectivity: {dataset.edge_adjacency_matrix.sum() / 2:.0f} connections")
     
     return dataset
 
@@ -95,7 +98,7 @@ def test_loss_computation():
     print("\nTesting loss computation...")
     
     from losses.WireframeLoss import WireframeLoss
-    from train import create_edge_labels_from_adjacency
+    from train import create_edge_labels_from_edge_set
     
     dataset = load_and_preprocess_data()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -109,7 +112,18 @@ def test_loss_computation():
     
     # Create edge labels
     edge_indices = [(i, j) for i in range(num_vertices) for j in range(i+1, num_vertices)]
-    edge_labels = create_edge_labels_from_adjacency(dataset.edge_adjacency_matrix, edge_indices).to(device)
+    # Use edge set if available, otherwise fall back to adjacency matrix
+    if hasattr(dataset, 'edge_set') and dataset.edge_set:
+        edge_labels = create_edge_labels_from_edge_set(dataset.edge_set, edge_indices).to(device)
+    else:
+        # Fallback: create edge set from adjacency matrix
+        edge_set = set()
+        adj_matrix = dataset.edge_adjacency_matrix
+        for i in range(adj_matrix.shape[0]):
+            for j in range(i+1, adj_matrix.shape[1]):
+                if adj_matrix[i, j] == 1:
+                    edge_set.add((i, j))
+        edge_labels = create_edge_labels_from_edge_set(edge_set, edge_indices).to(device)
     
     # Forward pass
     model.eval()

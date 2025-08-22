@@ -2,25 +2,35 @@
 COMPREHENSIVE TEST RESULTS SUMMARY
 ============================================================
 
-OVERALL STATISTICS:
-------------------------------
-Average Vertex RMSE: 7.598674 ± 4.941364
-Average Edge Precision: 0.501348 ± 0.411701
-Average Edge Recall: 0.492188 ± 0.417179
-Average Edge F1-Score: 0.493762 ± 0.415399
+GLOBAL STATISTICS (aggregated across all samples):
+--------------------------------------------------
+Global Vertex RMSE: 8.003082
+Global Edge Precision: 0.554054
+Global Edge Recall: 0.317829
+Global Edge F1-Score: 0.403941
+Total True Positives: 41
+Total False Positives: 33
+Total False Negatives: 88
+
+PER-SAMPLE AVERAGES (for comparison):
+----------------------------------------
+Average Vertex RMSE: 5.514584 ± 5.448314
+Average Edge Precision: 0.726799 ± 0.354083
+Average Edge Recall: 0.598710 ± 0.399196
+Average Edge F1-Score: 0.635512 ± 0.382005
 
 INDIVIDUAL RESULTS:
 ------------------------------
 test_sample_1:
-  Vertex RMSE: 12.801279
-  Edge Precision: 0.250000
-  Edge Recall: 0.333333
-  Edge F1-Score: 0.285714
+  Vertex RMSE: 0.974639
+  Edge Precision: 1.000000
+  Edge Recall: 0.944444
+  Edge F1-Score: 0.971429
   True Edges: 18
-  Predicted Edges: 24
+  Predicted Edges: 17
 
 test_sample_2:
-  Vertex RMSE: 0.456001
+  Vertex RMSE: 0.153377
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000
@@ -28,39 +38,39 @@ test_sample_2:
   Predicted Edges: 8
 
 test_sample_3:
-  Vertex RMSE: 8.135523
-  Edge Precision: 0.000000
-  Edge Recall: 0.000000
-  Edge F1-Score: 0.000000
+  Vertex RMSE: 7.773319
+  Edge Precision: 0.333333
+  Edge Recall: 0.062500
+  Edge F1-Score: 0.105263
   True Edges: 48
-  Predicted Edges: 8
+  Predicted Edges: 9
 
 test_sample_4:
-  Vertex RMSE: 12.316447
-  Edge Precision: 0.466667
-  Edge Recall: 0.437500
-  Edge F1-Score: 0.451613
+  Vertex RMSE: 10.782673
+  Edge Precision: 0.272727
+  Edge Recall: 0.187500
+  Edge F1-Score: 0.222222
   True Edges: 16
-  Predicted Edges: 15
+  Predicted Edges: 11
 
 test_sample_5:
-  Vertex RMSE: 8.659816
-  Edge Precision: 0.294118
+  Vertex RMSE: 8.537649
+  Edge Precision: 0.208333
   Edge Recall: 0.166667
-  Edge F1-Score: 0.212766
+  Edge F1-Score: 0.185185
   True Edges: 30
-  Predicted Edges: 17
+  Predicted Edges: 24
 
 test_sample_6:
-  Vertex RMSE: 13.764537
-  Edge Precision: 0.000000
-  Edge Recall: 0.000000
-  Edge F1-Score: 0.000000
+  Vertex RMSE: 15.163614
+  Edge Precision: 1.000000
+  Edge Recall: 0.428571
+  Edge F1-Score: 0.600000
   True Edges: 7
-  Predicted Edges: 0
+  Predicted Edges: 3
 
 test_sample_7:
-  Vertex RMSE: 2.327893
+  Vertex RMSE: 0.365699
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000
@@ -68,7 +78,7 @@ test_sample_7:
   Predicted Edges: 1
 
 test_sample_8:
-  Vertex RMSE: 2.327893
+  Vertex RMSE: 0.365699
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000

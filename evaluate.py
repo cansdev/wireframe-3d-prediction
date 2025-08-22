@@ -109,10 +109,13 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         print(f"  Min error: {vertex_errors.min():.6f}")
         print(f"  Std deviation: {vertex_errors.std():.6f}")
         
-        # Edge analysis  
-        true_edges = set()
-        for edge in sample_obj.edges:
-            true_edges.add((min(edge), max(edge)))
+        # Edge analysis using edge set
+        true_edges = sample_obj.edge_set if hasattr(sample_obj, 'edge_set') and sample_obj.edge_set else set()
+        # Fallback to creating edge set from edges if needed
+        if not true_edges:
+            true_edges = set()
+            for edge in sample_obj.edges:
+                true_edges.add((min(edge[0], edge[1]), max(edge[0], edge[1])))
         
         predicted_edges = set()
         for idx, (i, j) in enumerate(edge_indices):
@@ -209,22 +212,58 @@ def create_comprehensive_visualizations_for_all():
     return all_results
 
 def create_summary_report(results, output_dir):
-    """Create a summary report of all test results"""
+    """Create a summary report of all test results with proper global metrics"""
     report_path = os.path.join(output_dir, 'summary_report.txt')
+    
+    # Calculate global metrics by aggregating all true positives, false positives, and false negatives
+    global_tp = 0
+    global_fp = 0
+    global_fn = 0
+    all_vertex_errors = []
+    
+    for result in results:
+        analysis = result['analysis']
+        true_edges = analysis['true_edges']
+        predicted_edges = analysis['predicted_edges']
+        
+        # Accumulate global counts
+        global_tp += len(true_edges & predicted_edges)
+        global_fp += len(predicted_edges - true_edges)
+        global_fn += len(true_edges - predicted_edges)
+        
+        # Collect all vertex errors for global RMSE
+        all_vertex_errors.extend(analysis['vertex_errors'])
+    
+    # Calculate global metrics
+    global_precision = global_tp / (global_tp + global_fp) if (global_tp + global_fp) > 0 else 0
+    global_recall = global_tp / (global_tp + global_fn) if (global_tp + global_fn) > 0 else 0
+    global_f1 = 2 * global_precision * global_recall / (global_precision + global_recall) if (global_precision + global_recall) > 0 else 0
+    global_vertex_rmse = np.sqrt(np.mean(np.array(all_vertex_errors)**2))
     
     with open(report_path, 'w') as f:
         f.write("="*60 + "\n")
         f.write("COMPREHENSIVE TEST RESULTS SUMMARY\n")
         f.write("="*60 + "\n\n")
         
-        # Overall statistics
+        # Global statistics (proper aggregation)
+        f.write("GLOBAL STATISTICS (aggregated across all samples):\n")
+        f.write("-" * 50 + "\n")
+        f.write(f"Global Vertex RMSE: {global_vertex_rmse:.6f}\n")
+        f.write(f"Global Edge Precision: {global_precision:.6f}\n")
+        f.write(f"Global Edge Recall: {global_recall:.6f}\n")
+        f.write(f"Global Edge F1-Score: {global_f1:.6f}\n")
+        f.write(f"Total True Positives: {global_tp}\n")
+        f.write(f"Total False Positives: {global_fp}\n")
+        f.write(f"Total False Negatives: {global_fn}\n\n")
+        
+        # Per-sample averages (for comparison)
         all_vertex_rmse = [r['analysis']['vertex_rmse'] for r in results]
         all_precision = [r['analysis']['edge_precision'] for r in results]
         all_recall = [r['analysis']['edge_recall'] for r in results]
         all_f1 = [r['analysis']['edge_f1_score'] for r in results]
         
-        f.write("OVERALL STATISTICS:\n")
-        f.write("-" * 30 + "\n")
+        f.write("PER-SAMPLE AVERAGES (for comparison):\n")
+        f.write("-" * 40 + "\n")
         f.write(f"Average Vertex RMSE: {np.mean(all_vertex_rmse):.6f} ± {np.std(all_vertex_rmse):.6f}\n")
         f.write(f"Average Edge Precision: {np.mean(all_precision):.6f} ± {np.std(all_precision):.6f}\n")
         f.write(f"Average Edge Recall: {np.mean(all_recall):.6f} ± {np.std(all_recall):.6f}\n")
@@ -245,6 +284,7 @@ def create_summary_report(results, output_dir):
             f.write(f"  Predicted Edges: {len(analysis['predicted_edges'])}\n\n")
     
     print(f"✓ Summary report saved to {report_path}")
+    print(f"Global Metrics - Precision: {global_precision:.4f}, Recall: {global_recall:.4f}, F1: {global_f1:.4f}")
 
 def create_comprehensive_visualizations():
     """Original function kept for compatibility"""

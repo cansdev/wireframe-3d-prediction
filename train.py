@@ -29,14 +29,16 @@ def create_adjacency_matrix_from_predictions(edge_probs, edge_indices, num_verti
     return adj_matrices
 
 
-def create_edge_labels_from_adjacency(adj_matrix, edge_indices):
-    """Create edge labels tensor from adjacency matrix"""
+def create_edge_labels_from_edge_set(edge_set, edge_indices):
+    """Create edge labels tensor from edge set"""
     batch_size = 1  # Single example
     num_edges = len(edge_indices)
     edge_labels = torch.zeros(batch_size, num_edges)
     
     for edge_idx, (i, j) in enumerate(edge_indices):
-        if adj_matrix[i, j] == 1:
+        # Ensure consistent ordering (min, max)
+        edge_tuple = (min(i, j), max(i, j))
+        if edge_tuple in edge_set:
             edge_labels[0, edge_idx] = 1
             
     return edge_labels
@@ -52,7 +54,6 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     # Extract data from batch_data dictionary
     point_clouds = batch_data['point_clouds']  # Shape: (batch_size, num_points, 3)
     vertices = batch_data['vertices']  # Shape: (batch_size, max_vertices, 3)
-    adjacency_matrices = batch_data['adjacency_matrices']  # Shape: (batch_size, max_vertices, max_vertices)
     original_samples = batch_data['original_samples']
     
     # Get dimensions
@@ -77,12 +78,13 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
     target_vertices = torch.FloatTensor(vertices).to(device)
     
-    # Create edge labels for each sample in the batch
+    # Create edge labels for each sample in the batch using edge sets
     edge_labels_list = []
     for i in range(batch_size):
         actual_count = actual_vertex_counts[i].item()
-        edge_labels = create_edge_labels_from_adjacency(
-            adjacency_matrices[i], 
+        sample_edge_set = original_samples[i].edge_set
+        edge_labels = create_edge_labels_from_edge_set(
+            sample_edge_set, 
             [(j, k) for j in range(actual_count) for k in range(j+1, actual_count)]
         )
         edge_labels_list.append(edge_labels.squeeze(0))  # Remove the batch dimension
@@ -243,7 +245,6 @@ def evaluate_model(model, batch_data, device, max_vertices):
     # Extract data from batch_data dictionary
     point_clouds = batch_data['point_clouds']
     vertices = batch_data['vertices']
-    adjacency_matrices = batch_data['adjacency_matrices']
     scalers = batch_data['scalers']
     original_samples = batch_data['original_samples']
     
@@ -341,14 +342,14 @@ def evaluate_model(model, batch_data, device, max_vertices):
                 threshold=0.5
             )[0].numpy()
             
-            # Get original adjacency matrix
-            true_adj_matrix = original_sample.edge_adjacency_matrix
-            
-            # Resize true adjacency matrix to match predicted size
-            true_adj_resized = np.zeros((predicted_num_vertices, predicted_num_vertices))
-            min_size = min(predicted_num_vertices, true_adj_matrix.shape[0])
-            true_adj_resized[:min_size, :min_size] = true_adj_matrix[:min_size, :min_size]
-            true_adj_matrix = true_adj_resized
+            # Get original edge set and create adjacency matrix for evaluation
+            true_edge_set = original_sample.edge_set
+            true_adj_matrix = np.zeros((predicted_num_vertices, predicted_num_vertices))
+            for edge_tuple in true_edge_set:
+                v1, v2 = edge_tuple
+                if v1 < predicted_num_vertices and v2 < predicted_num_vertices:
+                    true_adj_matrix[v1, v2] = 1
+                    true_adj_matrix[v2, v1] = 1
             
             edge_accuracy = np.mean((pred_adj_matrix == true_adj_matrix).astype(float))
             
