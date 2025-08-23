@@ -74,13 +74,20 @@ def visualize_prediction_comparison(dataset, model, device):
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
+        # Get actual vertex count to avoid using padded vertices
+        actual_vertex_count = len(dataset.vertices)
+        
+        # Only use the first actual_vertex_count vertices to avoid spurious center vertices from padding
+        pred_vertices = pred_vertices[:actual_vertex_count]
+        
         # Convert back to original scale
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
         
-        # Create predicted edges (threshold at 0.5)
+        # Create predicted edges (threshold at 0.5, only between valid vertices)
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            if pred_edge_probs[idx] > 0.5:
+            # Only consider edges between valid vertices (not padded ones)
+            if pred_edge_probs[idx] > 0.5 and i < actual_vertex_count and j < actual_vertex_count:
                 pred_edges.append([i, j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     
