@@ -34,9 +34,9 @@ def main():
     train_dataset.load_all_data()
 
     # Gets batch data
-    batch_data = train_dataset.get_batch_data(target_points=2048)
+    batch_data = train_dataset.get_batch_data(target_points=1024)
 
-    model, loss_history = train_overfit_model(batch_data, num_epochs=500, learning_rate=0.001)
+    model, loss_history = train_overfit_model(batch_data, num_epochs=1000, learning_rate=0.001)
 
     print("\n" + "="*50)
     print("EVALUATING TRAINED MODEL")
@@ -48,7 +48,7 @@ def main():
     # Load and evaluate test dataset
     test_dataset = dataset.load_testing_dataset()
     test_dataset.load_all_data()
-    test_batch_data = test_dataset.get_batch_data(target_points=2048)
+    test_batch_data = test_dataset.get_batch_data(target_points=1024)
     
     test_results = evaluate_model(model, test_batch_data, device, max_vertices)
     

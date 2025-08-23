@@ -100,8 +100,8 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         edge_labels_batch = torch.zeros(batch_size, 0).to(device)
     
     criterion = WireframeLoss(
-        vertex_weight=10.0, 
-        edge_weight=20.0, 
+        vertex_weight=30.0, 
+        edge_weight=10.0, 
         count_weight=10.0,
         sparsity_weight=10.0 
     )  # More aggressive penalties for vertex count
