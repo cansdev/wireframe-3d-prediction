@@ -38,7 +38,7 @@ def load_trained_model():
     
     # Load trained weights
     if os.path.exists('trained_model.pth'):
-        model.load_state_dict(torch.load('trained_model.pth', map_location=device))
+        model.load_state_dict(torch.load('trained_model.pth', map_location=device), strict=False)
         model.eval()
         print(f"✓ Pre-trained model loaded successfully from 'trained_model.pth'")
     else:
