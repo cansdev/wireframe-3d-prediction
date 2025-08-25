@@ -21,9 +21,13 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+venv/
 
 # PNG files
 *.png
 
 # PyTorch model files
 *.pth
+
+# W&B files
+wandb/

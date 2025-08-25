@@ -10,6 +10,7 @@ from losses.WireframeLoss import WireframeLoss
 from models.EdgePredictor import EdgePredictor
 from models.PointNetEncoder import PointNetEncoder
 from demo_dataset.PCtoWFdataset import PCtoWFdataset
+import wandb
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -129,6 +130,38 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     logger.info(f"Learning rate: {learning_rate}")
     logger.info("=" * 80)
     start_time = time.time()
+
+
+    '''
+    WANDB Integration AREA
+    '''
+
+
+    run = wandb.init(
+    # Set the wandb entity where your project will be logged (generally your team name).
+    entity="can_g-a",
+    # Set the wandb project where this run will be logged.
+    project="Wireframe3D",
+    # Track hyperparameters and run metadata.
+    config={
+        "learning_rate": 0.02,
+        "architecture": "CNN",
+        "dataset": "CIFAR-100",
+        "epochs": 10,
+    },
+    )
+
+
+
+
+    '''
+    WANDB Integration AREA
+    '''
+    
+
+
+
+
     
     for epoch in range(num_epochs):
         optimizer.zero_grad()
@@ -221,6 +254,30 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
                        f"Max Err: {max_count_error:.0f} | "
                        f"LR: {current_lr:.8f} | "
                        f"Time: {elapsed_time:.1f}s")
+        
+        
+
+
+
+            # Log comprehensive metrics to wandb
+            run.log({
+                "epoch": epoch,
+                "total_loss": total_loss.item(),
+                "vertex_loss": loss_dict['vertex_loss'].item(),
+                "edge_loss": loss_dict['edge_loss'].item(),
+                "count_loss": loss_dict['count_loss'].item(),
+                "sparsity_loss": loss_dict['sparsity_loss'].item(),
+                "vertex_rmse": current_vertex_rmse,
+                "count_accuracy": count_accuracy,
+                "count_error": count_error,
+                "max_count_error": max_count_error,
+                "learning_rate": current_lr,
+                "elapsed_time": elapsed_time,
+                "best_loss": best_loss,
+                "best_vertex_rmse": best_vertex_rmse,
+                "patience_counter": patience_counter
+            })
+
             
             # Log predicted vs target counts for first few samples
             if epoch % 100 == 0 or epoch == num_epochs - 1:
@@ -232,6 +289,8 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
         logger.info(f"Loaded best model state with Vertex RMSE: {best_vertex_rmse:.6f}")
+
+    run.finish()
     
     logger.info(f"Training completed! Best loss: {best_loss:.6f}")
     
@@ -382,4 +441,3 @@ def evaluate_model(model, batch_data, device, max_vertices):
             results.append(result)
     
     return results
-
