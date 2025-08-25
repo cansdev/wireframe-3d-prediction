@@ -27,3 +27,6 @@ wheels/
 
 # PyTorch model files
 *.pth
+
+# W&B files
+wandb/
