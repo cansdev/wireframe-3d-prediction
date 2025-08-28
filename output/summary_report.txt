@@ -19,6 +19,19 @@ Average Edge Precision: 0.598450 ± 0.355096
 Average Edge Recall: 0.563641 ± 0.373932
 Average Edge F1-Score: 0.560986 ± 0.368801
 
+CORNER-BASED METRICS (per-sample averages):
+----------------------------------------
+Average ACO (Corner Overlap): 0.031250 ± 0.082680
+Average CP (Corner Precision): 0.031250 ± 0.082680
+Average CR (Corner Recall): 0.031250 ± 0.082680
+Average C-F1 (Corner F1): 0.031250 ± 0.082680
+
+ENHANCED EDGE METRICS (per-sample averages):
+----------------------------------------
+Average EP (Edge Precision): 0.598450 ± 0.355096
+Average ER (Edge Recall): 0.563641 ± 0.373932
+Average E-F1 (Edge F1): 0.560986 ± 0.368801
+
 INDIVIDUAL RESULTS:
 ------------------------------
 test_sample_1:
@@ -26,6 +39,13 @@ test_sample_1:
   Edge Precision: 0.277778
   Edge Recall: 0.555556
   Edge F1-Score: 0.370370
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.277778
+  ER (Edge Recall): 0.555556
+  E-F1 (Edge F1): 0.370370
   True Edges: 18
   Predicted Edges: 36
 
@@ -34,6 +54,13 @@ test_sample_2:
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000
+  ACO (Corner Overlap): 0.250000
+  CP (Corner Precision): 0.250000
+  CR (Corner Recall): 0.250000
+  C-F1 (Corner F1): 0.250000
+  EP (Edge Precision): 1.000000
+  ER (Edge Recall): 1.000000
+  E-F1 (Edge F1): 1.000000
   True Edges: 8
   Predicted Edges: 8
 
@@ -42,6 +69,13 @@ test_sample_3:
   Edge Precision: 0.272727
   Edge Recall: 0.062500
   Edge F1-Score: 0.101695
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.272727
+  ER (Edge Recall): 0.062500
+  E-F1 (Edge F1): 0.101695
   True Edges: 48
   Predicted Edges: 11
 
@@ -50,6 +84,13 @@ test_sample_4:
   Edge Precision: 0.100000
   Edge Recall: 0.062500
   Edge F1-Score: 0.076923
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.100000
+  ER (Edge Recall): 0.062500
+  E-F1 (Edge F1): 0.076923
   True Edges: 16
   Predicted Edges: 10
 
@@ -58,6 +99,13 @@ test_sample_5:
   Edge Precision: 0.387097
   Edge Recall: 0.400000
   Edge F1-Score: 0.393443
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.387097
+  ER (Edge Recall): 0.400000
+  E-F1 (Edge F1): 0.393443
   True Edges: 30
   Predicted Edges: 31
 
@@ -66,6 +114,13 @@ test_sample_6:
   Edge Precision: 0.750000
   Edge Recall: 0.428571
   Edge F1-Score: 0.545455
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.750000
+  ER (Edge Recall): 0.428571
+  E-F1 (Edge F1): 0.545455
   True Edges: 7
   Predicted Edges: 4
 
@@ -74,6 +129,13 @@ test_sample_7:
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 1.000000
+  ER (Edge Recall): 1.000000
+  E-F1 (Edge F1): 1.000000
   True Edges: 1
   Predicted Edges: 1
 
@@ -82,6 +144,13 @@ test_sample_8:
   Edge Precision: 1.000000
   Edge Recall: 1.000000
   Edge F1-Score: 1.000000
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 1.000000
+  ER (Edge Recall): 1.000000
+  E-F1 (Edge F1): 1.000000
   True Edges: 1
   Predicted Edges: 1
 

@@ -7,9 +7,6 @@ from torch.optim.lr_scheduler import StepLR
 import logging
 from models.PointCloudToWireframe import PointCloudToWireframe
 from losses.WireframeLoss import WireframeLoss
-from models.EdgePredictor import EdgePredictor
-from models.PointNetEncoder import PointNetEncoder
-from demo_dataset.PCtoWFdataset import PCtoWFdataset
 import wandb
 
 logging.basicConfig(level=logging.INFO)
