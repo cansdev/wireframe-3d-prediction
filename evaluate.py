@@ -189,7 +189,7 @@ def create_comprehensive_visualizations_for_all():
         })
         
         # Create visualizations
-        create_individual_visualizations(model, individual_sample, device, output_dir, sample_name)
+        #create_individual_visualizations(model, individual_sample, device, output_dir, sample_name)
     
     # Create summary report
     create_summary_report(all_results, output_dir)

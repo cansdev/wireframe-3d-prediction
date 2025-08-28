@@ -5,7 +5,7 @@ from train import evaluate_model, train_overfit_model
 def main():
 
     # Load data
-    dataset = PCtoWFdataset(
+    dataset = PCtoWFdataset( 
         train_pc_dir='demo_dataset/train_dataset/point_cloud',
         train_wf_dir='demo_dataset/train_dataset/wireframe',
         test_pc_dir='demo_dataset/test_dataset/point_cloud',
