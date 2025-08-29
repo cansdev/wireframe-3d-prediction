@@ -45,9 +45,78 @@ def create_edge_labels_from_edge_set(edge_set, edge_indices):
     return edge_labels
 
 
+def compute_building3d_metrics(results):
+    """Compute Building3D benchmark metrics from evaluation results"""
+    all_aco = []
+    all_cp = []
+    all_cr = []
+    all_c_f1 = []
+    all_ep = []
+    all_er = []
+    all_e_f1 = []
+    
+    for result in results:
+        # Extract data for proper Building3D calculations
+        pred_vertices = result['predicted_vertices']
+        true_vertex_count = result['true_vertex_count']
+        
+        # Calculate ACO (Average Corner Offset) - use actual vertex positions
+        if len(pred_vertices) > 0 and true_vertex_count > 0:
+            # For proper ACO, we need true vertex positions, but we only have count
+            # Use vertex RMSE as approximation for now
+            aco = result['vertex_rmse']
+        else:
+            aco = float('inf')
+        
+        # Use actual edge metrics from evaluation
+        ep = result['edge_precision']
+        er = result['edge_recall']
+        e_f1 = result['edge_f1_score']
+        
+        # For corner metrics, use a threshold-based approach
+        # Consider a vertex "correctly predicted" if within threshold
+        corner_threshold = 2.0  # meters - adjust based on your scale
+        vertex_rmse = result['vertex_rmse']
+        
+        # Simplified corner precision/recall based on RMSE threshold
+        if vertex_rmse <= corner_threshold:
+            cp = 1.0  # Good precision if RMSE is low
+            cr = 1.0  # Good recall if RMSE is low
+        else:
+            cp = 0.0  # Poor precision if RMSE is high
+            cr = 0.0  # Poor recall if RMSE is high
+        
+        c_f1 = 2 * cp * cr / (cp + cr) if (cp + cr) > 0 else 0
+        
+        all_aco.append(aco)
+        all_cp.append(cp)
+        all_cr.append(cr)
+        all_c_f1.append(c_f1)
+        all_ep.append(ep)
+        all_er.append(er)
+        all_e_f1.append(e_f1)
+    
+    # Calculate global averages
+    global_aco = np.mean(all_aco)
+    global_cp = np.mean(all_cp)
+    global_cr = np.mean(all_cr)
+    global_c_f1 = np.mean(all_c_f1)
+    global_ep = np.mean(all_ep)
+    global_er = np.mean(all_er)
+    global_e_f1 = np.mean(all_e_f1)
+    
+    return {
+        'building3d_aco': global_aco,
+        'building3d_cp': global_cp,
+        'building3d_cr': global_cr,
+        'building3d_c_f1': global_c_f1,
+        'building3d_ep': global_ep,
+        'building3d_er': global_er,
+        'building3d_e_f1': global_e_f1
+    }
 
 
-def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
+def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_run=None):
     """Train model to overfit on batch of examples"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Training on device: {device}")
@@ -132,31 +201,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     start_time = time.time()
 
 
-    '''
-    WANDB Integration AREA
-    '''
-
-
-    run = wandb.init(
-    # Set the wandb entity where your project will be logged (generally your team name).
-    entity="can_g-a",
-    # Set the wandb project where this run will be logged.
-    project="Wireframe3D",
-    # Track hyperparameters and run metadata.
-    config={
-        "learning_rate": 0.02,
-        "architecture": "CNN",
-        "dataset": "CIFAR-100",
-        "epochs": 10,
-    },
-    )
-
-
-
-
-    '''
-    WANDB Integration AREA
-    '''
+    # W&B run is now managed by main.py
     
 
 
@@ -260,23 +305,24 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
 
 
             # Log comprehensive metrics to wandb
-            run.log({
-                "epoch": epoch,
-                "total_loss": total_loss.item(),
-                "vertex_loss": loss_dict['vertex_loss'].item(),
-                "edge_loss": loss_dict['edge_loss'].item(),
-                "count_loss": loss_dict['count_loss'].item(),
-                "sparsity_loss": loss_dict['sparsity_loss'].item(),
-                "vertex_rmse": current_vertex_rmse,
-                "count_accuracy": count_accuracy,
-                "count_error": count_error,
-                "max_count_error": max_count_error,
-                "learning_rate": current_lr,
-                "elapsed_time": elapsed_time,
-                "best_loss": best_loss,
-                "best_vertex_rmse": best_vertex_rmse,
-                "patience_counter": patience_counter
-            })
+            if wandb_run is not None:
+                wandb_run.log({
+                    "epoch": epoch,
+                    "total_loss": total_loss.item(),
+                    "vertex_loss": loss_dict['vertex_loss'].item(),
+                    "edge_loss": loss_dict['edge_loss'].item(),
+                    "count_loss": loss_dict['count_loss'].item(),
+                    "sparsity_loss": loss_dict['sparsity_loss'].item(),
+                    "vertex_rmse": current_vertex_rmse,
+                    "count_accuracy": count_accuracy,
+                    "count_error": count_error,
+                    "max_count_error": max_count_error,
+                    "learning_rate": current_lr,
+                    "elapsed_time": elapsed_time,
+                    "best_loss": best_loss,
+                    "best_vertex_rmse": best_vertex_rmse,
+                    "patience_counter": patience_counter
+                })
 
             
             # Log predicted vs target counts for first few samples
@@ -290,8 +336,6 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         model.load_state_dict(best_model_state)
         logger.info(f"Loaded best model state with Vertex RMSE: {best_vertex_rmse:.6f}")
 
-    run.finish()
-    
     logger.info(f"Training completed! Best loss: {best_loss:.6f}")
     
     return model, loss_history

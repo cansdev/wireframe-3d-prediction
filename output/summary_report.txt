@@ -2,86 +2,68 @@
 COMPREHENSIVE TEST RESULTS SUMMARY
 ============================================================
 
-GLOBAL STATISTICS (aggregated across all samples):
+BUILDING3D BENCHMARK METRICS (Global Averages):
 --------------------------------------------------
-Global Vertex RMSE: 8.503840
-Global Edge Precision: 0.382353
-Global Edge Recall: 0.302326
-Global Edge F1-Score: 0.337662
-Total True Positives: 39
-Total False Positives: 63
-Total False Negatives: 90
+ACO (Average Corner Offset): 6.017336
+CP (Corner Precision): 0.358243
+CR (Corner Recall): 0.666667
+C-F1 (Corner F1): 0.379608
+EP (Edge Precision): 0.212269
+ER (Edge Recall): 0.215377
+E-F1 (Edge F1): 0.211606
+
+OUR CUSTOM METRICS (Global Aggregation):
+--------------------------------------------------
+Global Vertex RMSE: 8.281963
+Global Edge Precision: 0.216981
+Global Edge Recall: 0.223301
+Global Edge F1-Score: 0.220096
+Total True Positives: 23
+Total False Positives: 83
+Total False Negatives: 80
 
 PER-SAMPLE AVERAGES (for comparison):
 ----------------------------------------
-Average Vertex RMSE: 6.316917 ± 5.234780
-Average Edge Precision: 0.598450 ± 0.355096
-Average Edge Recall: 0.563641 ± 0.373932
-Average Edge F1-Score: 0.560986 ± 0.368801
+Average Vertex RMSE: 6.448068 ± 4.098698
+Average Edge Precision: 0.212269 ± 0.225228
+Average Edge Recall: 0.215377 ± 0.204165
+Average Edge F1-Score: 0.211606 ± 0.211152
 
 INDIVIDUAL RESULTS:
 ------------------------------
 test_sample_1:
-  Vertex RMSE: 6.270823
-  Edge Precision: 0.277778
-  Edge Recall: 0.555556
-  Edge F1-Score: 0.370370
-  True Edges: 18
-  Predicted Edges: 36
+  Building3D - ACO: 7.367917, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
+  Building3D - EP: 0.162791, ER: 0.145833, E-F1: 0.153846
+  Custom - Vertex RMSE: 7.760542, Edge F1: 0.153846
+  True Edges: 48, Predicted Edges: 43
 
 test_sample_2:
-  Vertex RMSE: 0.143697
-  Edge Precision: 1.000000
-  Edge Recall: 1.000000
-  Edge F1-Score: 1.000000
-  True Edges: 8
-  Predicted Edges: 8
+  Building3D - ACO: 8.576119, CP: 0.062500, CR: 1.000000, C-F1: 0.117647
+  Building3D - EP: 0.272727, ER: 0.375000, E-F1: 0.315789
+  Custom - Vertex RMSE: 9.081787, Edge F1: 0.315789
+  True Edges: 16, Predicted Edges: 22
 
 test_sample_3:
-  Vertex RMSE: 8.138939
-  Edge Precision: 0.272727
-  Edge Recall: 0.062500
-  Edge F1-Score: 0.101695
-  True Edges: 48
-  Predicted Edges: 11
+  Building3D - ACO: 7.269174, CP: 0.086957, CR: 1.000000, C-F1: 0.160000
+  Building3D - EP: 0.171429, ER: 0.200000, E-F1: 0.184615
+  Custom - Vertex RMSE: 8.060361, Edge F1: 0.184615
+  True Edges: 30, Predicted Edges: 35
 
 test_sample_4:
-  Vertex RMSE: 10.997183
-  Edge Precision: 0.100000
-  Edge Recall: 0.062500
-  Edge F1-Score: 0.076923
-  True Edges: 16
-  Predicted Edges: 10
+  Building3D - ACO: 11.261383, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
+  Building3D - EP: 0.666667, ER: 0.571429, E-F1: 0.615385
+  Custom - Vertex RMSE: 11.863365, Edge F1: 0.615385
+  True Edges: 7, Predicted Edges: 6
 
 test_sample_5:
-  Vertex RMSE: 8.154888
-  Edge Precision: 0.387097
-  Edge Recall: 0.400000
-  Edge F1-Score: 0.393443
-  True Edges: 30
-  Predicted Edges: 31
+  Building3D - ACO: 0.814712, CP: 1.000000, CR: 1.000000, C-F1: 1.000000
+  Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
+  Custom - Vertex RMSE: 0.961176, Edge F1: 0.000000
+  True Edges: 1, Predicted Edges: 0
 
 test_sample_6:
-  Vertex RMSE: 15.643557
-  Edge Precision: 0.750000
-  Edge Recall: 0.428571
-  Edge F1-Score: 0.545455
-  True Edges: 7
-  Predicted Edges: 4
-
-test_sample_7:
-  Vertex RMSE: 0.593126
-  Edge Precision: 1.000000
-  Edge Recall: 1.000000
-  Edge F1-Score: 1.000000
-  True Edges: 1
-  Predicted Edges: 1
-
-test_sample_8:
-  Vertex RMSE: 0.593126
-  Edge Precision: 1.000000
-  Edge Recall: 1.000000
-  Edge F1-Score: 1.000000
-  True Edges: 1
-  Predicted Edges: 1
+  Building3D - ACO: 0.814712, CP: 1.000000, CR: 1.000000, C-F1: 1.000000
+  Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
+  Custom - Vertex RMSE: 0.961176, Edge F1: 0.000000
+  True Edges: 1, Predicted Edges: 0
 
