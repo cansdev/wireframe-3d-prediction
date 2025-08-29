@@ -261,7 +261,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
                 param_group['lr'] = warmup_lr
         elif epoch < fine_tuning_start:
             # Phase 1: Normal cosine annealing for initial convergence
-            scheduler_cosine.step(epoch - warmup_epochs)
+            scheduler_cosine.step()  # Removed deprecated epoch parameter
         elif epoch < ultra_fine_tuning_start:
             # Phase 2: Fine-tuning phase - smooth exponential decay
             if epoch == fine_tuning_start:
