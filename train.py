@@ -177,16 +177,22 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     )  # More aggressive penalties for vertex count
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)
     
+    # 5. Fine-tuning parameters (define first)
+    warmup_epochs = 30  # Reduced warmup
+    warmup_factor = 0.1
+    fine_tuning_start = 200  # Start fine-tuning when count accuracy is high
+    ultra_fine_tuning_start = 400  # Ultra-fine tuning phase
+    
     # Enhanced adaptive learning rate system for ultimate convergence
-    # 1. Cosine Annealing with Warm Restarts for cyclical learning (early phase)
-    scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=50, T_mult=1, eta_min=learning_rate * 0.01  # Shorter cycles, higher min
+    # 1. Cosine Annealing WITHOUT restarts to avoid spikes
+    scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=num_epochs - warmup_epochs, eta_min=learning_rate * 0.001
     )
     
     # 2. Plateau reduction for adaptive scaling based on performance
     scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.7, patience=30, threshold=0.005, 
-        threshold_mode='rel', cooldown=10, min_lr=learning_rate * 1e-7, verbose=True
+        optimizer, mode='min', factor=0.8, patience=40, threshold=0.001, 
+        threshold_mode='rel', cooldown=15, min_lr=learning_rate * 1e-7, verbose=False
     )
     
     # 3. Dynamic loss weight adjustment for fine-tuning phase
@@ -199,12 +205,6 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     vertex_lr_multiplier = 1.0
     edge_lr_multiplier = 1.0
     count_lr_multiplier = 1.0
-    
-    # 5. Fine-tuning parameters
-    warmup_epochs = 30  # Reduced warmup
-    warmup_factor = 0.1
-    fine_tuning_start = 200  # Start fine-tuning when count accuracy is high
-    ultra_fine_tuning_start = 400  # Ultra-fine tuning phase
     
     # Training loop
     model.train()
@@ -263,21 +263,21 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
             # Phase 1: Normal cosine annealing for initial convergence
             scheduler_cosine.step(epoch - warmup_epochs)
         elif epoch < ultra_fine_tuning_start:
-            # Phase 2: Fine-tuning phase - disable restarts, focus on stability
+            # Phase 2: Fine-tuning phase - smooth exponential decay
             if epoch == fine_tuning_start:
                 logger.info(f"Entering fine-tuning phase at epoch {epoch}")
-            # Use exponential decay instead of cosine restarts
-            decay_factor = 0.999  # Very slow decay
+            # Use gentle exponential decay instead of cosine restarts
+            decay_factor = 0.9995  # Very slow decay to maintain stability
             current_lr = current_lr_base * (decay_factor ** (epoch - fine_tuning_start))
             for param_group in optimizer.param_groups:
                 param_group['lr'] = max(current_lr, learning_rate * 1e-6)
         else:
-            # Phase 3: Ultra-fine tuning - extremely small learning rates
+            # Phase 3: Ultra-fine tuning - extremely small but stable learning rates
             if epoch == ultra_fine_tuning_start:
                 logger.info(f"Entering ultra-fine tuning phase at epoch {epoch}")
-            ultra_fine_lr = learning_rate * 1e-4 * (0.995 ** (epoch - ultra_fine_tuning_start))
+            ultra_fine_lr = learning_rate * 1e-5  # Fixed small LR, no further decay
             for param_group in optimizer.param_groups:
-                param_group['lr'] = max(ultra_fine_lr, learning_rate * 1e-8)
+                param_group['lr'] = ultra_fine_lr
         
         # Dynamic loss weight adjustment based on training progress
         if epoch > 0 and epoch % 20 == 0:
