@@ -31,7 +31,7 @@ class PointCloudToWireframe(nn.Module):
         global_features, point_features = self.encoder(point_cloud)
         
         # Predict vertices with dynamic count
-        vertex_output = self.vertex_predictor(global_features, target_vertex_counts)
+        vertex_output = self.vertex_predictor(global_features, target_vertex_counts) # point_features eklenmesi mümkün $$$$$$$$$
         predicted_vertices = vertex_output['vertices']
         
         # During training, apply hard constraint on vertex count
