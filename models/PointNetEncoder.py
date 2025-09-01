@@ -48,7 +48,6 @@ class PointNetEncoder(nn.Module):
         valid_counts = mask.sum(dim=1, keepdim=True).clamp(min=1).float()  # (batch_size, 1)
 
         # Reshape for MLP processing
-        main
         x = x.view(-1, input_dim)  # (batch_size * num_points, input_dim) reshape kullanılabilir mi? $$$$$$$$$$$$
 
 
