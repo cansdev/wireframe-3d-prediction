@@ -4,3 +4,4 @@ scikit-learn>=1.0.0
 matplotlib>=3.4.0
 open3d>=0.15.0
 wandb>=0.12.0
+        main

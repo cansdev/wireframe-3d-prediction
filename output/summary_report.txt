@@ -24,10 +24,23 @@ Total False Negatives: 80
 
 PER-SAMPLE AVERAGES (for comparison):
 ----------------------------------------
-Average Vertex RMSE: 6.448068 � 4.098698
-Average Edge Precision: 0.212269 � 0.225228
-Average Edge Recall: 0.215377 � 0.204165
-Average Edge F1-Score: 0.211606 � 0.211152
+Average Vertex RMSE: 6.448068 ± 4.098698
+Average Edge Precision: 0.212269 ± 0.225228
+Average Edge Recall: 0.215377 ± 0.204165
+Average Edge F1-Score: 0.211606 ± 0.211152
+
+CORNER-BASED METRICS (per-sample averages):
+----------------------------------------
+Average ACO (Corner Overlap): 0.031250 ± 0.082680
+Average CP (Corner Precision): 0.031250 ± 0.082680
+Average CR (Corner Recall): 0.031250 ± 0.082680
+Average C-F1 (Corner F1): 0.031250 ± 0.082680
+
+ENHANCED EDGE METRICS (per-sample averages):
+----------------------------------------
+Average EP (Edge Precision): 0.598450 ± 0.355096
+Average ER (Edge Recall): 0.563641 ± 0.373932
+Average E-F1 (Edge F1): 0.560986 ± 0.368801
 
 INDIVIDUAL RESULTS:
 ------------------------------
@@ -66,4 +79,5 @@ test_sample_6:
   Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
   Custom - Vertex RMSE: 0.961176, Edge F1: 0.000000
   True Edges: 1, Predicted Edges: 0
+         main
 

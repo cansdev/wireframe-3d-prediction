@@ -7,8 +7,97 @@ import matplotlib.pyplot as plt
 import numpy as np
 from demo_dataset.PCtoWFdataset import PCtoWFdataset
 from models.PointCloudToWireframe import PointCloudToWireframe
-from train import train_overfit_model, evaluate_model
 from visualize.visualize_wireframe import visualize_prediction_comparison, visualize_edge_probabilities
+from scipy.spatial.distance import cdist
+
+def calculate_corner_overlap(pred_vertices, true_vertices, threshold=0.1):
+    """
+    Calculate Average Corner Overlap (ACO)
+    Measures how well predicted corners overlap with ground-truth corners
+    """
+    if len(pred_vertices) == 0 or len(true_vertices) == 0:
+        return 0.0
+    
+    # Calculate distance matrix between predicted and true vertices
+    distances = cdist(pred_vertices, true_vertices)
+    
+    # For each predicted vertex, find the closest true vertex
+    min_distances = np.min(distances, axis=1)
+    
+    # Count how many predicted vertices are within threshold of true vertices
+    overlapping_vertices = np.sum(min_distances <= threshold)
+    
+    # Calculate overlap ratio
+    overlap_ratio = overlapping_vertices / len(pred_vertices)
+    
+    return overlap_ratio
+
+def calculate_corner_metrics(pred_vertices, true_vertices, threshold=0.1):
+    """
+    Calculate Corner Precision (CP), Corner Recall (CR), and Corner F1 (C-F1)
+    """
+    if len(pred_vertices) == 0 and len(true_vertices) == 0:
+        return 1.0, 1.0, 1.0  # Perfect match when both are empty
+    
+    if len(pred_vertices) == 0:
+        return 0.0, 0.0, 0.0  # No predictions
+    
+    if len(true_vertices) == 0:
+        return 0.0, 1.0, 0.0  # No true corners to match
+    
+    # Calculate distance matrix
+    distances = cdist(pred_vertices, true_vertices)
+    
+    # For Corner Precision: how many predicted vertices match true vertices
+    pred_min_distances = np.min(distances, axis=1)
+    correct_predictions = np.sum(pred_min_distances <= threshold)
+    corner_precision = correct_predictions / len(pred_vertices)
+    
+    # For Corner Recall: how many true vertices are detected
+    true_min_distances = np.min(distances, axis=0)
+    detected_true_vertices = np.sum(true_min_distances <= threshold)
+    corner_recall = detected_true_vertices / len(true_vertices)
+    
+    # Corner F1 Score
+    if corner_precision + corner_recall == 0:
+        corner_f1 = 0.0
+    else:
+        corner_f1 = 2 * corner_precision * corner_recall / (corner_precision + corner_recall)
+    
+    return corner_precision, corner_recall, corner_f1
+
+def calculate_enhanced_edge_metrics(pred_edges, true_edges):
+    """
+    Calculate Edge Precision (EP), Edge Recall (ER), and Edge F1 (E-F1)
+    """
+    if len(pred_edges) == 0 and len(true_edges) == 0:
+        return 1.0, 1.0, 1.0  # Perfect match when both are empty
+    
+    pred_edge_set = set(pred_edges)
+    true_edge_set = set(true_edges)
+    
+    # True Positives: edges that exist in both predicted and true sets
+    tp = len(pred_edge_set & true_edge_set)
+    
+    # False Positives: edges predicted but not in ground truth
+    fp = len(pred_edge_set - true_edge_set)
+    
+    # False Negatives: true edges not predicted
+    fn = len(true_edge_set - pred_edge_set)
+    
+    # Edge Precision (EP)
+    edge_precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    
+    # Edge Recall (ER)
+    edge_recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    
+    # Edge F1 Score (E-F1)
+    if edge_precision + edge_recall == 0:
+        edge_f1 = 0.0
+    else:
+        edge_f1 = 2 * edge_precision * edge_recall / (edge_precision + edge_recall)
+    
+    return edge_precision, edge_recall, edge_f1
 
 def load_trained_model():
     """Load the pre-trained model from trained_model.pth"""
@@ -165,6 +254,7 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         print(f"  Correct predictions: {edge_tp}")
         print(f"  False positives: {edge_fp}")
         print(f"  False negatives: {edge_fn}")
+        main
         
         # Calculate our custom edge metrics
         precision = ep  # same as Building3D EP
@@ -174,6 +264,26 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         print(f"  Precision: {precision:.6f}")
         print(f"  Recall: {recall:.6f}")
         print(f"  F1-Score: {f1_score:.6f}")
+        
+        # Calculate new corner-based metrics
+        corner_overlap = calculate_corner_overlap(pred_vertices_original, true_vertices, threshold=0.1)
+        corner_precision, corner_recall, corner_f1 = calculate_corner_metrics(pred_vertices_original, true_vertices, threshold=0.1)
+        
+        # Calculate enhanced edge metrics (same as above but for consistency)
+        edge_precision_enhanced, edge_recall_enhanced, edge_f1_enhanced = calculate_enhanced_edge_metrics(
+            list(predicted_edges), list(true_edges)
+        )
+        
+        print(f"\nCorner-based Metrics:")
+        print(f"  ACO (Average Corner Overlap): {corner_overlap:.6f}")
+        print(f"  CP (Corner Precision): {corner_precision:.6f}")
+        print(f"  CR (Corner Recall): {corner_recall:.6f}")
+        print(f"  C-F1 (Corner F1 Score): {corner_f1:.6f}")
+        
+        print(f"\nEnhanced Edge Metrics:")
+        print(f"  EP (Edge Precision): {edge_precision_enhanced:.6f}")
+        print(f"  ER (Edge Recall): {edge_recall_enhanced:.6f}")
+        print(f"  E-F1 (Edge F1 Score): {edge_f1_enhanced:.6f}")
         
         return {
             # Building3D metrics
@@ -190,6 +300,16 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
             'edge_precision': precision,
             'edge_recall': recall,
             'edge_f1_score': f1_score,
+            # New corner-based metrics
+            'corner_overlap': corner_overlap,
+            'corner_precision': corner_precision,
+            'corner_recall': corner_recall,
+            'corner_f1': corner_f1,
+            # Enhanced edge metrics
+            'edge_precision_enhanced': edge_precision_enhanced,
+            'edge_recall_enhanced': edge_recall_enhanced,
+            'edge_f1_enhanced': edge_f1_enhanced,
+            # Data for further analysis
             'vertex_errors': vertex_errors,
             'pred_vertices': pred_vertices_original,
             'true_vertices': true_vertices,
@@ -389,12 +509,36 @@ def create_summary_report(results, output_dir):
         all_recall = [r['analysis']['edge_recall'] for r in results]
         all_f1 = [r['analysis']['edge_f1_score'] for r in results]
         
+        # New corner-based metrics
+        all_corner_overlap = [r['analysis']['corner_overlap'] for r in results]
+        all_corner_precision = [r['analysis']['corner_precision'] for r in results]
+        all_corner_recall = [r['analysis']['corner_recall'] for r in results]
+        all_corner_f1 = [r['analysis']['corner_f1'] for r in results]
+        
+        # Enhanced edge metrics
+        all_edge_precision_enhanced = [r['analysis']['edge_precision_enhanced'] for r in results]
+        all_edge_recall_enhanced = [r['analysis']['edge_recall_enhanced'] for r in results]
+        all_edge_f1_enhanced = [r['analysis']['edge_f1_enhanced'] for r in results]
+        
         f.write("PER-SAMPLE AVERAGES (for comparison):\n")
         f.write("-" * 40 + "\n")
         f.write(f"Average Vertex RMSE: {np.mean(all_vertex_rmse):.6f} ± {np.std(all_vertex_rmse):.6f}\n")
         f.write(f"Average Edge Precision: {np.mean(all_precision):.6f} ± {np.std(all_precision):.6f}\n")
         f.write(f"Average Edge Recall: {np.mean(all_recall):.6f} ± {np.std(all_recall):.6f}\n")
         f.write(f"Average Edge F1-Score: {np.mean(all_f1):.6f} ± {np.std(all_f1):.6f}\n\n")
+        
+        f.write("CORNER-BASED METRICS (per-sample averages):\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"Average ACO (Corner Overlap): {np.mean(all_corner_overlap):.6f} ± {np.std(all_corner_overlap):.6f}\n")
+        f.write(f"Average CP (Corner Precision): {np.mean(all_corner_precision):.6f} ± {np.std(all_corner_precision):.6f}\n")
+        f.write(f"Average CR (Corner Recall): {np.mean(all_corner_recall):.6f} ± {np.std(all_corner_recall):.6f}\n")
+        f.write(f"Average C-F1 (Corner F1): {np.mean(all_corner_f1):.6f} ± {np.std(all_corner_f1):.6f}\n\n")
+        
+        f.write("ENHANCED EDGE METRICS (per-sample averages):\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"Average EP (Edge Precision): {np.mean(all_edge_precision_enhanced):.6f} ± {np.std(all_edge_precision_enhanced):.6f}\n")
+        f.write(f"Average ER (Edge Recall): {np.mean(all_edge_recall_enhanced):.6f} ± {np.std(all_edge_recall_enhanced):.6f}\n")
+        f.write(f"Average E-F1 (Edge F1): {np.mean(all_edge_f1_enhanced):.6f} ± {np.std(all_edge_f1_enhanced):.6f}\n\n")
         
         # Individual results
         f.write("INDIVIDUAL RESULTS:\n")
@@ -403,10 +547,25 @@ def create_summary_report(results, output_dir):
             name = result['name']
             analysis = result['analysis']
             f.write(f"{name}:\n")
+            f.write(f"  Vertex RMSE: {analysis['vertex_rmse']:.6f}\n")
+            f.write(f"  Edge Precision: {analysis['edge_precision']:.6f}\n")
+            f.write(f"  Edge Recall: {analysis['edge_recall']:.6f}\n")
+            f.write(f"  Edge F1-Score: {analysis['edge_f1_score']:.6f}\n")
+            f.write(f"  ACO (Corner Overlap): {analysis['corner_overlap']:.6f}\n")
+            f.write(f"  CP (Corner Precision): {analysis['corner_precision']:.6f}\n")
+            f.write(f"  CR (Corner Recall): {analysis['corner_recall']:.6f}\n")
+            f.write(f"  C-F1 (Corner F1): {analysis['corner_f1']:.6f}\n")
+            f.write(f"  EP (Edge Precision): {analysis['edge_precision_enhanced']:.6f}\n")
+            f.write(f"  ER (Edge Recall): {analysis['edge_recall_enhanced']:.6f}\n")
+            f.write(f"  E-F1 (Edge F1): {analysis['edge_f1_enhanced']:.6f}\n")
+            f.write(f"  True Edges: {len(analysis['true_edges'])}\n")
+            f.write(f"  Predicted Edges: {len(analysis['predicted_edges'])}\n\n")
             f.write(f"  Building3D - ACO: {analysis['building3d_aco']:.6f}, CP: {analysis['building3d_cp']:.6f}, CR: {analysis['building3d_cr']:.6f}, C-F1: {analysis['building3d_c_f1']:.6f}\n")
             f.write(f"  Building3D - EP: {analysis['building3d_ep']:.6f}, ER: {analysis['building3d_er']:.6f}, E-F1: {analysis['building3d_e_f1']:.6f}\n")
             f.write(f"  Custom - Vertex RMSE: {analysis['vertex_rmse']:.6f}, Edge F1: {analysis['edge_f1_score']:.6f}\n")
             f.write(f"  True Edges: {len(analysis['true_edges'])}, Predicted Edges: {len(analysis['predicted_edges'])}\n\n")
+            
+          main
     
     print(f"✓ Summary report saved to {report_path}")
     print(f"Building3D Metrics - ACO: {global_aco:.4f}, C-F1: {global_c_f1:.4f}, E-F1: {global_e_f1:.4f}")

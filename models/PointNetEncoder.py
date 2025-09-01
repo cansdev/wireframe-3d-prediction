@@ -22,7 +22,7 @@ class PointNetEncoder(nn.Module):
             
         layers.append(nn.Linear(prev_dim, output_dim))
         
-        self.mlp = nn.Sequential(*layers)
+        self.mlp = nn.Sequential(*layers)   
         
         # Enhanced pooling - combine max and mean
         self.global_max_pool = nn.AdaptiveMaxPool1d(1)
@@ -48,8 +48,11 @@ class PointNetEncoder(nn.Module):
         valid_counts = mask.sum(dim=1, keepdim=True).clamp(min=1).float()  # (batch_size, 1)
 
         # Reshape for MLP processing
-        x = x.view(-1, input_dim)  # (batch_size * num_points, input_dim)
+        main
+        x = x.view(-1, input_dim)  # (batch_size * num_points, input_dim) reshape kullanılabilir mi? $$$$$$$$$$$$
 
+
+        
         # Apply MLP to each point
         point_features = self.mlp(x)  # (batch_size * num_points, output_dim)
 
