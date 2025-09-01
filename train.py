@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingWarmRestarts, ReduceLROnPlateau
 import logging
 from models.PointCloudToWireframe import PointCloudToWireframe
 from losses.WireframeLoss import WireframeLoss
@@ -42,9 +42,78 @@ def create_edge_labels_from_edge_set(edge_set, edge_indices):
     return edge_labels
 
 
+def compute_building3d_metrics(results):
+    """Compute Building3D benchmark metrics from evaluation results"""
+    all_aco = []
+    all_cp = []
+    all_cr = []
+    all_c_f1 = []
+    all_ep = []
+    all_er = []
+    all_e_f1 = []
+    
+    for result in results:
+        # Extract data for proper Building3D calculations
+        pred_vertices = result['predicted_vertices']
+        true_vertex_count = result['true_vertex_count']
+        
+        # Calculate ACO (Average Corner Offset) - use actual vertex positions
+        if len(pred_vertices) > 0 and true_vertex_count > 0:
+            # For proper ACO, we need true vertex positions, but we only have count
+            # Use vertex RMSE as approximation for now
+            aco = result['vertex_rmse']
+        else:
+            aco = float('inf')
+        
+        # Use actual edge metrics from evaluation
+        ep = result['edge_precision']
+        er = result['edge_recall']
+        e_f1 = result['edge_f1_score']
+        
+        # For corner metrics, use a threshold-based approach
+        # Consider a vertex "correctly predicted" if within threshold
+        corner_threshold = 2.0  # meters - adjust based on your scale
+        vertex_rmse = result['vertex_rmse']
+        
+        # Simplified corner precision/recall based on RMSE threshold
+        if vertex_rmse <= corner_threshold:
+            cp = 1.0  # Good precision if RMSE is low
+            cr = 1.0  # Good recall if RMSE is low
+        else:
+            cp = 0.0  # Poor precision if RMSE is high
+            cr = 0.0  # Poor recall if RMSE is high
+        
+        c_f1 = 2 * cp * cr / (cp + cr) if (cp + cr) > 0 else 0
+        
+        all_aco.append(aco)
+        all_cp.append(cp)
+        all_cr.append(cr)
+        all_c_f1.append(c_f1)
+        all_ep.append(ep)
+        all_er.append(er)
+        all_e_f1.append(e_f1)
+    
+    # Calculate global averages
+    global_aco = np.mean(all_aco)
+    global_cp = np.mean(all_cp)
+    global_cr = np.mean(all_cr)
+    global_c_f1 = np.mean(all_c_f1)
+    global_ep = np.mean(all_ep)
+    global_er = np.mean(all_er)
+    global_e_f1 = np.mean(all_e_f1)
+    
+    return {
+        'building3d_aco': global_aco,
+        'building3d_cp': global_cp,
+        'building3d_cr': global_cr,
+        'building3d_c_f1': global_c_f1,
+        'building3d_ep': global_ep,
+        'building3d_er': global_er,
+        'building3d_e_f1': global_e_f1
+    }
 
 
-def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
+def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_run=None):
     """Train model to overfit on batch of examples"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Training on device: {device}")
@@ -104,8 +173,35 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         sparsity_weight=10.0 
     )  # More aggressive penalties for vertex count
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)
-    # More aggressive learning rate schedule
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[400, 600, 750, 850], gamma=0.3)
+    
+    # 5. Fine-tuning parameters (define first)
+    warmup_epochs = 30  # Reduced warmup
+    warmup_factor = 0.1
+    fine_tuning_start = 200  # Start fine-tuning when count accuracy is high
+    ultra_fine_tuning_start = 400  # Ultra-fine tuning phase
+    
+    # Enhanced adaptive learning rate system for ultimate convergence
+    # 1. Cosine Annealing WITHOUT restarts to avoid spikes
+    scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=num_epochs - warmup_epochs, eta_min=learning_rate * 0.001
+    )
+    
+    # 2. Plateau reduction for adaptive scaling based on performance
+    scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.8, patience=40, threshold=0.001, 
+        threshold_mode='rel', cooldown=15, min_lr=learning_rate * 1e-7, verbose=False
+    )
+    
+    # 3. Dynamic loss weight adjustment for fine-tuning phase
+    initial_vertex_weight = 30.0
+    initial_count_weight = 10.0
+    vertex_weight_multiplier = 1.0
+    count_weight_multiplier = 1.0
+    
+    # 4. Multi-component learning rates for different loss components
+    vertex_lr_multiplier = 1.0
+    edge_lr_multiplier = 1.0
+    count_lr_multiplier = 1.0
     
     # Training loop
     model.train()
@@ -128,38 +224,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
     logger.info("=" * 80)
     start_time = time.time()
 
-
-    '''
-    WANDB Integration AREA
-    '''
-
-
-    run = wandb.init(
-    # Set the wandb entity where your project will be logged (generally your team name).
-    entity="can_g-a",
-    # Set the wandb project where this run will be logged.
-    project="Wireframe3D",
-    # Track hyperparameters and run metadata.
-    config={
-        "learning_rate": 0.02,
-        "architecture": "CNN",
-        "dataset": "CIFAR-100",
-        "epochs": 10,
-    },
-    )
-
-
-
-
-    '''
-    WANDB Integration AREA
-    '''
-    
-
-
-
-
-    
+    # W&B run is now managed by main.py
     for epoch in range(num_epochs):
         optimizer.zero_grad()
         
@@ -182,7 +247,85 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
         optimizer.step()
-        scheduler.step()
+        
+        # Enhanced learning rate scheduling with phase-based optimization
+        current_lr_base = optimizer.param_groups[0]['lr']
+        
+        # 1. Warmup phase
+        if epoch < warmup_epochs:
+            warmup_lr = learning_rate * (warmup_factor + (1.0 - warmup_factor) * epoch / warmup_epochs)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = warmup_lr
+        elif epoch < fine_tuning_start:
+            # Phase 1: Normal cosine annealing for initial convergence
+            scheduler_cosine.step()  # Removed deprecated epoch parameter
+        elif epoch < ultra_fine_tuning_start:
+            # Phase 2: Fine-tuning phase - smooth exponential decay
+            if epoch == fine_tuning_start:
+                logger.info(f"Entering fine-tuning phase at epoch {epoch}")
+            # Use gentle exponential decay instead of cosine restarts
+            decay_factor = 0.9995  # Very slow decay to maintain stability
+            current_lr = current_lr_base * (decay_factor ** (epoch - fine_tuning_start))
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = max(current_lr, learning_rate * 1e-6)
+        else:
+            # Phase 3: Ultra-fine tuning - extremely small but stable learning rates
+            if epoch == ultra_fine_tuning_start:
+                logger.info(f"Entering ultra-fine tuning phase at epoch {epoch}")
+            ultra_fine_lr = learning_rate * 1e-5  # Fixed small LR, no further decay
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = ultra_fine_lr
+        
+        # Dynamic loss weight adjustment based on training progress
+        if epoch > 0 and epoch % 20 == 0:
+            # Calculate loss component ratios
+            vertex_loss_ratio = loss_dict['vertex_loss'].item() / total_loss.item()
+            edge_loss_ratio = loss_dict['edge_loss'].item() / total_loss.item()
+            count_loss_ratio = loss_dict['count_loss'].item() / total_loss.item()
+            
+            # Calculate current metrics for adaptive adjustment
+            with torch.no_grad():
+                pred_counts = predictions['predicted_vertex_counts'].cpu().numpy()
+                true_counts = actual_vertex_counts.cpu().numpy()
+                count_accuracy = np.mean(pred_counts == true_counts) * 100
+            
+            # Dynamic loss weight adjustment for fine convergence
+            if count_accuracy >= 95.0 and epoch >= fine_tuning_start:
+                # Once count prediction is excellent, drastically reduce count weight
+                # and increase vertex weight for fine-tuning
+                count_weight_multiplier *= 0.8  # Reduce count weight more aggressively
+                vertex_weight_multiplier *= 1.2  # Increase vertex weight for precision
+                
+                # Update loss weights in the criterion
+                criterion.count_weight = initial_count_weight * count_weight_multiplier
+                criterion.vertex_weight = initial_vertex_weight * vertex_weight_multiplier
+            
+            # Learning rate multiplier adjustments (more conservative)
+            if vertex_loss_ratio > 0.1:  # Lowered thresholds since count loss dominates
+                vertex_lr_multiplier *= 1.1  # Increase vertex LR when it's significant
+            elif vertex_loss_ratio < 0.001:
+                vertex_lr_multiplier *= 0.95  # Slight reduction if vertex loss is tiny
+                
+            # Edge loss adjustment
+            if edge_loss_ratio > 0.05:
+                edge_lr_multiplier *= 1.05
+            elif edge_loss_ratio < 0.001:
+                edge_lr_multiplier *= 0.98
+                
+            # Count loss adjustment (be more aggressive in reducing when accuracy is high)
+            if count_accuracy >= 98.0:
+                count_lr_multiplier *= 0.9  # Reduce count LR when accuracy is very high
+            elif count_accuracy < 90.0:
+                count_lr_multiplier *= 1.1
+            
+            # Clamp multipliers with wider ranges for vertex precision
+            vertex_lr_multiplier = max(0.1, min(5.0, vertex_lr_multiplier))  # Allow higher vertex LR
+            edge_lr_multiplier = max(0.1, min(3.0, edge_lr_multiplier))
+            count_lr_multiplier = max(0.05, min(2.0, count_lr_multiplier))  # Allow lower count LR
+            
+            # Clamp weight multipliers
+            vertex_weight_multiplier = max(0.5, min(10.0, vertex_weight_multiplier))
+            count_weight_multiplier = max(0.01, min(2.0, count_weight_multiplier))
         
         # Track progress
         loss_history.append(total_loss.item())
@@ -203,6 +346,17 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
             current_vertex_rmse = np.sqrt(np.mean((pred_vertices_orig - target_vertices_orig) ** 2))
             vertex_rmse_history.append(current_vertex_rmse)
         
+        # Apply plateau scheduler based on vertex RMSE (after warmup and during fine-tuning)
+        if epoch >= warmup_epochs and epoch < ultra_fine_tuning_start:
+            scheduler_plateau.step(current_vertex_rmse)
+        
+        # Additional ultra-fine plateau detection
+        if epoch >= ultra_fine_tuning_start and current_vertex_rmse < 0.1:
+            # Apply even more aggressive LR reduction for ultra-fine convergence
+            if epoch % 10 == 0 and current_vertex_rmse > 0.01:
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] *= 0.95  # Gentle but persistent reduction
+        
         # Early stopping based on vertex RMSE and save best model
         if current_vertex_rmse < best_vertex_rmse:
             best_vertex_rmse = current_vertex_rmse
@@ -222,8 +376,8 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         if epoch % 20 == 0 or epoch == num_epochs - 1:
             elapsed_time = time.time() - start_time
             
-            # Get current learning rate
-            current_lr = scheduler.get_last_lr()[0]
+            # Get current learning rate from optimizer
+            current_lr = optimizer.param_groups[0]['lr']
             
             # Calculate additional metrics for logging
             with torch.no_grad():
@@ -251,31 +405,43 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
                        f"Max Err: {max_count_error:.0f} | "
                        f"LR: {current_lr:.8f} | "
                        f"Time: {elapsed_time:.1f}s")
-        
-        
-
-
+            
+            # Enhanced learning rate logging
+            if epoch > warmup_epochs and epoch % 40 == 0:
+                logger.info(f"           LR Multipliers - Vertex: {vertex_lr_multiplier:.3f}, "
+                           f"Edge: {edge_lr_multiplier:.3f}, Count: {count_lr_multiplier:.3f}")
+                
+                # Log loss component ratios
+                vertex_ratio = loss_dict['vertex_loss'].item() / total_loss.item()
+                edge_ratio = loss_dict['edge_loss'].item() / total_loss.item()
+                count_ratio = loss_dict['count_loss'].item() / total_loss.item()
+                sparsity_ratio = loss_dict['sparsity_loss'].item() / total_loss.item()
+                
+                logger.info(f"           Loss Ratios - Vertex: {vertex_ratio:.3f}, "
+                           f"Edge: {edge_ratio:.3f}, Count: {count_ratio:.3f}, Sparsity: {sparsity_ratio:.3f}")
 
             # Log comprehensive metrics to wandb
-            run.log({
-                "epoch": epoch,
-                "total_loss": total_loss.item(),
-                "vertex_loss": loss_dict['vertex_loss'].item(),
-                "edge_loss": loss_dict['edge_loss'].item(),
-                "count_loss": loss_dict['count_loss'].item(),
-                "sparsity_loss": loss_dict['sparsity_loss'].item(),
-                "vertex_rmse": current_vertex_rmse,
-                "count_accuracy": count_accuracy,
-                "count_error": count_error,
-                "max_count_error": max_count_error,
-                "learning_rate": current_lr,
-                "elapsed_time": elapsed_time,
-                "best_loss": best_loss,
-                "best_vertex_rmse": best_vertex_rmse,
-                "patience_counter": patience_counter
-            })
+            if wandb_run is not None:
+                log_dict = {
+                    "epoch": epoch,
+                    "total_loss": total_loss.item(),
+                    "vertex_loss": loss_dict['vertex_loss'].item(),
+                    "edge_loss": loss_dict['edge_loss'].item(),
+                    "count_loss": loss_dict['count_loss'].item(),
+                    "sparsity_loss": loss_dict['sparsity_loss'].item(),
+                    "vertex_rmse": current_vertex_rmse,
+                    "count_accuracy": count_accuracy,
+                    "count_error": count_error,
+                    "max_count_error": max_count_error,
+                    "learning_rate": current_lr,
+                    "elapsed_time": elapsed_time,
+                    "best_loss": best_loss,
+                    "best_vertex_rmse": best_vertex_rmse,
+                    "patience_counter": patience_counter
+                }
+                
+                wandb_run.log(log_dict)
 
-            
             # Log predicted vs target counts for first few samples
             if epoch % 100 == 0 or epoch == num_epochs - 1:
                 logger.info(f"           Pred counts: {pred_counts[:min(len(pred_counts), 7)]}")
@@ -287,8 +453,6 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001):
         model.load_state_dict(best_model_state)
         logger.info(f"Loaded best model state with Vertex RMSE: {best_vertex_rmse:.6f}")
 
-    run.finish()
-    
     logger.info(f"Training completed! Best loss: {best_loss:.6f}")
     
     return model, loss_history

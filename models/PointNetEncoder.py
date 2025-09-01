@@ -42,28 +42,37 @@ class PointNetEncoder(nn.Module):
     def forward(self, x):
         # x shape: (batch_size, num_points, input_dim)
         batch_size, num_points, input_dim = x.shape
-        
+
+        # Build mask of valid points from detached input to avoid autograd overhead
+        mask = (x.detach().abs().sum(dim=-1) > 1e-9)  # (batch_size, num_points)
+        valid_counts = mask.sum(dim=1, keepdim=True).clamp(min=1).float()  # (batch_size, 1)
+
         # Reshape for MLP processing
+        main
         x = x.view(-1, input_dim)  # (batch_size * num_points, input_dim) reshape kullanılabilir mi? $$$$$$$$$$$$
 
 
         
         # Apply MLP to each point
         point_features = self.mlp(x)  # (batch_size * num_points, output_dim)
-        
+
         # Reshape back
         point_features = point_features.view(batch_size, num_points, -1)
-        
-        # Enhanced global pooling - combine max and mean
-        # Transpose for pooling: (batch_size, output_dim, num_points)
-        point_features_t = point_features.transpose(1, 2)
-        
-        # Max and average pooling
-        max_features = self.global_max_pool(point_features_t).squeeze(-1)
-        avg_features = self.global_avg_pool(point_features_t).squeeze(-1)
-        
+
+        # Mask-aware global pooling to ignore zero-padded points
+        # Masked average pooling over valid points
+        masked_features = point_features * mask.unsqueeze(-1)  # (batch_size, num_points, feat_dim)
+        avg_features = masked_features.sum(dim=1) / valid_counts  # (batch_size, feat_dim)
+
+        # Masked max pooling: set invalid positions to -inf before max
+        masked_for_max = point_features.masked_fill(~mask.unsqueeze(-1), float('-inf'))
+        # Use built-in max reduction for speed
+        max_features, _ = masked_for_max.max(dim=1)  # (batch_size, feat_dim)
+        # Safety for all-invalid (shouldn't happen but keep numerically robust)
+        max_features = torch.where(torch.isfinite(max_features), max_features, torch.zeros_like(max_features))
+
         # Combine features with more processing
         combined_features = torch.cat([max_features, avg_features], dim=1)
         global_features = self.feature_fusion(combined_features)
-        
+
         return global_features, point_features
