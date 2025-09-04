@@ -1,6 +1,7 @@
 import torch
 from demo_dataset.PCtoWFdataset import PCtoWFdataset
-from train import evaluate_model, train_overfit_model, compute_building3d_metrics
+from train import evaluate_model, train_overfit_model
+from test import compute_building3d_metrics
 import wandb
 
 def main():
