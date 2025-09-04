@@ -210,16 +210,16 @@ Starting batch training for 1000 epochs...
 Batch size: N
 Max vertices: V
 Target vertex counts: [v1, v2, v3, ...]
-Loss weights - Vertex: 5.0, Edge: 1.0, Count: 100.0, Sparsity: 50.0
+Loss weights - Vertex: 30.0, Edge: 10.0
 
-Epoch    0/1000 | Total: 15.234567 | Vertex: 12.345678 | Edge: 1.234567 | Count: 0.987654 | Sparsity: 0.666321
-           RMSE: 8.765432 | Count Acc: 12.5% | Count Err: 3.45 | Max Err: 8 | LR: 0.00100000
+Epoch    0/1000 | Total: 15.234567 | Vertex: 12.345678 | Edge: 1.234567
+           RMSE: 8.765432 | LR: 0.00100000
 
-Epoch  100/1000 | Total: 3.456789 | Vertex: 2.345678 | Edge: 0.876543 | Count: 0.123456 | Sparsity: 0.111111
-           RMSE: 2.345678 | Count Acc: 75.0% | Count Err: 1.25 | Max Err: 3 | LR: 0.00100000
+Epoch  100/1000 | Total: 3.456789 | Vertex: 2.345678 | Edge: 0.876543
+           RMSE: 2.345678 | LR: 0.00100000
 
-Epoch  400/1000 | Total: 1.234567 | Vertex: 0.876543 | Edge: 0.234567 | Count: 0.098765 | Sparsity: 0.024691
-           RMSE: 1.123456 | Count Acc: 87.5% | Count Err: 0.75 | Max Err: 2 | LR: 0.00030000
+Epoch  400/1000 | Total: 1.234567 | Vertex: 0.876543 | Edge: 0.234567
+           RMSE: 1.123456 | LR: 0.00030000
 
 Early stopping at epoch 650! Vertex RMSE hasn't improved for 500 epochs
 Loaded best model state with Vertex RMSE: 0.987654
@@ -351,7 +351,6 @@ total_loss = vertex_weight * MSE(predicted_vertices, true_vertices) +
 #### Per-Sample Metrics (For Analysis)
 - **Individual Vertex RMSE**: Per-sample vertex position accuracy
 - **Individual Edge Metrics**: Per-sample precision/recall for detailed analysis
-- **Vertex Count Accuracy**: Exact match between predicted and true vertex counts
 
 ## Technical Implementation
 
@@ -408,16 +407,13 @@ In `train.py`, adjust loss component importance:
 ```python
 # Current balanced approach
 criterion = WireframeLoss(
-    vertex_weight=5.0,      # Vertex position importance
-    edge_weight=1.0,        # Edge connectivity importance
-    count_weight=100.0,     # Vertex count prediction importance
-    sparsity_weight=50.0    # Vertex count regularization
+    vertex_weight=30.0,     # Vertex position importance
+    edge_weight=10.0        # Edge connectivity importance
 )
 
 # Alternative configurations
 # Vertex-focused: vertex_weight=50.0, edge_weight=1.0
 # Edge-focused: vertex_weight=1.0, edge_weight=10.0
-# Count-focused: count_weight=200.0, sparsity_weight=100.0
 ```
 
 ### Model Architecture

@@ -6,38 +6,31 @@ class WireframeLoss(nn.Module):
     """
     Combined multi-task loss function for wireframe prediction
     
-    This loss combines four different objectives:
+    This loss combines two different objectives:
     1. Vertex Position Loss: MSE loss for 3D coordinate accuracy
     2. Edge Connectivity Loss: BCE loss for edge existence prediction
-    3. Vertex Count Loss: Cross-entropy loss for count classification
-    4. Sparsity Loss: L2 penalty to discourage over-prediction of vertices
     
     The loss is designed to handle variable vertex counts by masking
     and only computing losses on active vertices/edges.
     """
     
-    def __init__(self, vertex_weight=1.0, edge_weight=1.0, count_weight=0.1, sparsity_weight=0.5):
+    def __init__(self, vertex_weight=1.0, edge_weight=1.0):
         """
         Initialize the combined wireframe loss
         
         Args:
             vertex_weight (float): Weight for vertex position loss (default: 1.0)
             edge_weight (float): Weight for edge connectivity loss (default: 1.0) 
-            count_weight (float): Weight for vertex count prediction loss (default: 0.1)
-            sparsity_weight (float): Weight for sparsity regularization loss (default: 0.5)
         """
         super(WireframeLoss, self).__init__()
         
         # Store loss weights for different components
         self.vertex_weight = vertex_weight
         self.edge_weight = edge_weight
-        self.count_weight = count_weight
-        self.sparsity_weight = sparsity_weight
         
         # Initialize loss functions for different components
         self.mse_loss = nn.MSELoss()        # For vertex position regression
         self.bce_loss = nn.BCELoss()        # For edge existence classification
-        self.ce_loss = nn.CrossEntropyLoss()  # For vertex count classification
         
     def forward(self, predictions, targets):
         """
@@ -47,9 +40,6 @@ class WireframeLoss(nn.Module):
             predictions (dict): Model predictions containing:
                 - vertices: Predicted vertex coordinates (batch_size, max_vertices, 3)
                 - edge_probs: Edge existence probabilities (batch_size, num_edges)
-                - vertex_count_probs: Vertex count probability distribution
-                - predicted_vertex_counts: Discrete predicted vertex counts
-                - actual_vertex_counts: Vertex counts used in computation
                 
             targets (dict): Ground truth targets containing:
                 - vertices: Target vertex coordinates (batch_size, max_vertices, 3)
@@ -100,37 +90,14 @@ class WireframeLoss(nn.Module):
         else:
             edge_loss = torch.tensor(0.0, device=pred_vertices.device)  # Empty predictions case
         
-        # COMPONENT 3: Vertex Count Classification Loss (Cross-entropy on count predictions)
-        # Vertex count prediction loss
-        count_loss = torch.tensor(0.0, device=pred_vertices.device)
-        if 'vertex_count_probs' in predictions and 'vertex_counts' in targets:
-            pred_count_probs = predictions['vertex_count_probs']  # (batch_size, max_vertices+1) - softmax distribution
-            target_counts = targets['vertex_counts']              # (batch_size,) - discrete count values
-            # Ensure target counts are within valid range [0, max_vertices]
-            target_counts = torch.clamp(target_counts, 0, pred_count_probs.shape[1] - 1)
-            count_loss = self.ce_loss(pred_count_probs, target_counts)
-        
-        # COMPONENT 4: Sparsity Regularization Loss (L2 penalty on count over-prediction)
-        # Add sparsity loss - penalize predicted vertex count more aggressively
-        sparsity_loss = torch.tensor(0.0, device=pred_vertices.device)
-        if 'predicted_vertex_counts' in predictions:
-            pred_counts = predictions['predicted_vertex_counts'].float()  # Predicted discrete counts
-            target_counts_float = targets['vertex_counts'].float()        # Target discrete counts
-            # Use L2 loss for stronger penalty on large deviations from target count
-            sparsity_loss = ((pred_counts - target_counts_float) ** 2).mean()
-        
         # FINAL: Combine all loss components with respective weights
         # Combined loss with weighted sum of all components
         total_loss = (self.vertex_weight * vertex_loss +      # Coordinate accuracy
-                     self.edge_weight * edge_loss +           # Connectivity accuracy  
-                     self.count_weight * count_loss +         # Count classification
-                     self.sparsity_weight * sparsity_loss)    # Over-prediction penalty
+                     self.edge_weight * edge_loss)            # Connectivity accuracy  
         
         # Return detailed loss breakdown for monitoring and debugging
         return {
             'total_loss': total_loss,        # Combined weighted loss
             'vertex_loss': vertex_loss,      # MSE loss for vertex positions
             'edge_loss': edge_loss,          # BCE loss for edge connectivity
-            'count_loss': count_loss,        # CrossEntropy loss for count prediction
-            'sparsity_loss': sparsity_loss   # L2 penalty for count regularization
         }
