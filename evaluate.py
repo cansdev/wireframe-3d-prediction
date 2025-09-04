@@ -254,7 +254,6 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         print(f"  Correct predictions: {edge_tp}")
         print(f"  False positives: {edge_fp}")
         print(f"  False negatives: {edge_fn}")
-        main
         
         # Calculate our custom edge metrics
         precision = ep  # same as Building3D EP
@@ -564,8 +563,6 @@ def create_summary_report(results, output_dir):
             f.write(f"  Building3D - EP: {analysis['building3d_ep']:.6f}, ER: {analysis['building3d_er']:.6f}, E-F1: {analysis['building3d_e_f1']:.6f}\n")
             f.write(f"  Custom - Vertex RMSE: {analysis['vertex_rmse']:.6f}, Edge F1: {analysis['edge_f1_score']:.6f}\n")
             f.write(f"  True Edges: {len(analysis['true_edges'])}, Predicted Edges: {len(analysis['predicted_edges'])}\n\n")
-            
-          main
     
     print(f"✓ Summary report saved to {report_path}")
     print(f"Building3D Metrics - ACO: {global_aco:.4f}, C-F1: {global_c_f1:.4f}, E-F1: {global_e_f1:.4f}")
