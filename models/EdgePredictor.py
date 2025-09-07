@@ -27,8 +27,15 @@ class EdgePredictor(nn.Module):
         """
         super(EdgePredictor, self).__init__()
         
-        # Project vertices from 3D coordinates to higher-dimensional feature space
-        self.vertex_proj = nn.Linear(vertex_dim, hidden_dim)
+        # Enhanced vertex feature extraction
+        self.vertex_proj = nn.Sequential(
+            nn.Linear(vertex_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.Dropout(0.1)
+        )
         
         # Multi-head self-attention to capture vertex relationships and interactions
         self.attention = nn.MultiheadAttention(
@@ -38,16 +45,26 @@ class EdgePredictor(nn.Module):
             batch_first=True           # Input format: (batch_size, seq_len, features)
         )
         
-        # Edge prediction MLP that processes vertex pair features
+        # Additional spatial encoding for better geometric understanding
+        self.spatial_proj = nn.Sequential(
+            nn.Linear(vertex_dim, hidden_dim // 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 4, hidden_dim // 4)
+        )
+        
+        # Enhanced edge prediction MLP with spatial features
         self.edge_mlp = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),  # Concatenated vertex features input
-            nn.LayerNorm(hidden_dim),                # Normalization for stable training
-            nn.GELU(),                               # Smooth activation function
-            nn.Dropout(0.1),                         # Regularization
-            nn.Linear(hidden_dim, hidden_dim // 2),  # Compression layer
-            nn.LayerNorm(hidden_dim // 2),           # Normalization
-            nn.GELU(),                               # Activation
-            nn.Linear(hidden_dim // 2, 1)            # Final edge probability prediction
+            nn.Linear(hidden_dim * 2 + vertex_dim * 2 + 1, hidden_dim),  # Features + coordinates + distance
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 4, 1)
         )
         
         # Cache for edge indices to avoid recomputation for same vertex count
@@ -95,17 +112,15 @@ class EdgePredictor(nn.Module):
         """
         batch_size, num_vertices, vertex_dim = vertices.shape
         
-        # STEP 1: Project vertices to higher-dimensional feature space
-        # Transform 3D coordinates to rich feature representation
+        # STEP 1: Enhanced vertex feature extraction
         vertex_features = self.vertex_proj(vertices)  # (batch_size, num_vertices, hidden_dim)
         
         # STEP 2: Apply self-attention to capture vertex relationships
-        # Self-attention allows each vertex to attend to all other vertices
-        attended_features, _ = self.attention(
-            vertex_features, vertex_features, vertex_features  # Query, Key, Value (all same for self-attention)
+        attended_features, attention_weights = self.attention(
+            vertex_features, vertex_features, vertex_features
         )  # (batch_size, num_vertices, hidden_dim)
         
-        # STEP 3: Add residual connection for better gradient flow
+        # STEP 3: Add residual connection and combine with spatial features
         vertex_features = vertex_features + attended_features
         
         # STEP 4: Generate edge indices for all possible vertex pairs
@@ -113,18 +128,23 @@ class EdgePredictor(nn.Module):
         i_indices = edge_indices[:, 0]  # First vertex of each pair
         j_indices = edge_indices[:, 1]  # Second vertex of each pair
         
-        # STEP 5: Gather features for each vertex pair
-        # Extract features for vertices i and j in each potential edge
-        v1 = vertex_features[:, i_indices, :]  # (batch_size, num_edges, hidden_dim) - first vertex features
-        v2 = vertex_features[:, j_indices, :]  # (batch_size, num_edges, hidden_dim) - second vertex features
+        # STEP 5: Gather features and coordinates for each vertex pair
+        v1_features = vertex_features[:, i_indices, :]  # (batch_size, num_edges, hidden_dim)
+        v2_features = vertex_features[:, j_indices, :]  # (batch_size, num_edges, hidden_dim)
         
-        # STEP 6: Predict edge probabilities
-        # Concatenate vertex pair features and predict edge existence
-        edge_features = torch.cat([v1, v2], dim=-1)  # (batch_size, num_edges, hidden_dim * 2)
-        edge_features_flat = edge_features.view(-1, edge_features.shape[-1])  # Flatten for MLP processing
+        v1_coords = vertices[:, i_indices, :]  # (batch_size, num_edges, vertex_dim)
+        v2_coords = vertices[:, j_indices, :]  # (batch_size, num_edges, vertex_dim)
         
-        # Apply edge prediction MLP
-        edge_logits = self.edge_mlp(edge_features_flat)  # Raw predictions
-        edge_probs = torch.sigmoid(edge_logits).view(batch_size, -1)  # Convert to probabilities [0,1]
+        # STEP 6: Predict edge probabilities with enhanced features
+        # Calculate spatial distance features
+        distances = torch.norm(v1_coords - v2_coords, dim=-1, keepdim=True)  # (batch_size, num_edges, 1)
         
-        return edge_probs, edge_indices.tolist()  # Return probabilities and corresponding edge pairs
+        # Concatenate learned features + raw spatial coordinates + distances
+        edge_features = torch.cat([v1_features, v2_features, v1_coords, v2_coords, distances], dim=-1)
+        edge_features_flat = edge_features.view(-1, edge_features.shape[-1])
+        
+        # Apply enhanced edge prediction MLP
+        edge_logits = self.edge_mlp(edge_features_flat)
+        edge_probs = torch.sigmoid(edge_logits).view(batch_size, -1)
+        
+        return edge_probs, edge_indices.tolist()
