@@ -99,24 +99,24 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         vertex_weight=20.0,  # Reduced vertex weight 
         edge_weight=30.0     # Increased edge weight significantly
     ) 
-    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0, eps=1e-8)
+    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
     # 5. Fine-tuning parameters (define first)
     warmup_epochs = 30  # Reduced warmup
     warmup_factor = 0.1
     fine_tuning_start = 200  # Start fine-tuning when performance is stable
-    ultra_fine_tuning_start = 400  # Ultra-fine tuning phase
+    # REMOVED: ultra_fine_tuning_start - causes RMSE degradation
     
-    # Enhanced adaptive learning rate system for ultimate convergence
-    # 1. Cosine Annealing WITHOUT restarts to avoid spikes
+    # Enhanced adaptive learning rate system with better convergence
+    # 1. Cosine Annealing with reasonable minimum learning rate
     scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=num_epochs - warmup_epochs, eta_min=learning_rate * 0.001
+        optimizer, T_max=num_epochs - warmup_epochs, eta_min=learning_rate * 0.1  # Much higher min LR
     )
     
-    # 2. Plateau reduction for adaptive scaling based on performance
+    # 2. Plateau reduction with conservative parameters
     scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.8, patience=40, threshold=0.001, 
-        threshold_mode='rel', cooldown=15, min_lr=learning_rate * 1e-7, verbose=False
+        optimizer, mode='min', factor=0.8, patience=50, threshold=0.005, 
+        threshold_mode='rel', cooldown=20, min_lr=learning_rate * 1e-3, verbose=False  # Higher min LR
     )
     
     # 3. Dynamic loss weight adjustment for fine-tuning phase
@@ -134,7 +134,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     best_model_state = None  # Initialize best model state
     loss_history = []
     vertex_rmse_history = []
-    patience = 500  # Increased patience for better convergence
+    patience = 500  # Further reduced patience for faster stopping when not improving
     patience_counter = 0
     current_vertex_rmse = 999999
 
@@ -183,22 +183,16 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         elif epoch < fine_tuning_start:
             # Phase 1: Normal cosine annealing for initial convergence
             scheduler_cosine.step()  # Removed deprecated epoch parameter
-        elif epoch < ultra_fine_tuning_start:
-            # Phase 2: Fine-tuning phase - smooth exponential decay
+        else:
+            # Phase 2: Fine-tuning phase - much more conservative decay
             if epoch == fine_tuning_start:
                 logger.info(f"Entering fine-tuning phase at epoch {epoch}")
-            # Use gentle exponential decay instead of cosine restarts
-            decay_factor = 0.9995  # Very slow decay to maintain stability
+            # Use very conservative decay to maintain learning capability
+            decay_factor = 0.9998  # Very slow decay
             current_lr = current_lr_base * (decay_factor ** (epoch - fine_tuning_start))
+            min_lr = learning_rate * 1e-3  # Much higher minimum LR
             for param_group in optimizer.param_groups:
-                param_group['lr'] = max(current_lr, learning_rate * 1e-6)
-        else:
-            # Phase 3: Ultra-fine tuning - extremely small but stable learning rates
-            if epoch == ultra_fine_tuning_start:
-                logger.info(f"Entering ultra-fine tuning phase at epoch {epoch}")
-            ultra_fine_lr = learning_rate * 1e-5  # Fixed small LR, no further decay
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = ultra_fine_lr
+                param_group['lr'] = max(current_lr, min_lr)
         
         # Dynamic loss weight adjustment based on training progress
         if epoch > 0 and epoch % 20 == 0:
@@ -246,16 +240,18 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
             current_vertex_rmse = np.sqrt(np.mean((pred_vertices_orig - target_vertices_orig) ** 2))
             vertex_rmse_history.append(current_vertex_rmse)
         
-        # Apply plateau scheduler based on vertex RMSE (after warmup and during fine-tuning)
-        if epoch >= warmup_epochs and epoch < ultra_fine_tuning_start:
+        # Apply plateau scheduler based on vertex RMSE (more conservative)
+        if epoch >= warmup_epochs and epoch % 5 == 0:  # Less frequent application
             scheduler_plateau.step(current_vertex_rmse)
         
-        # Additional ultra-fine plateau detection
-        if epoch >= ultra_fine_tuning_start and current_vertex_rmse < 0.1:
-            # Apply even more aggressive LR reduction for ultra-fine convergence
-            if epoch % 10 == 0 and current_vertex_rmse > 0.01:
-                for param_group in optimizer.param_groups:
-                    param_group['lr'] *= 0.95  # Gentle but persistent reduction
+        # Additional fine-tuning plateau detection with higher thresholds
+        if epoch >= fine_tuning_start and current_vertex_rmse < 1.0:  # Higher threshold
+            # Apply very moderate LR reduction only when really needed
+            if epoch % 30 == 0 and current_vertex_rmse > 0.1:  # Less frequent and higher threshold
+                current_lr = optimizer.param_groups[0]['lr']
+                if current_lr > learning_rate * 1e-3:  # Only reduce if above minimum
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] *= 0.95  # Very gentle reduction
         
         # Early stopping based on vertex RMSE and save best model
         if current_vertex_rmse < best_vertex_rmse:
@@ -267,8 +263,8 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         if total_loss.item() < best_loss:
             best_loss = total_loss.item()
         
-        # Early stopping check (more aggressive)
-        if patience_counter >= patience and epoch > 400:
+        # Early stopping check (improved for better convergence)
+        if patience_counter >= patience and epoch > 250:  # Allow more time for initial convergence
             logger.info(f"Early stopping at epoch {epoch}! Vertex RMSE hasn't improved for {patience} epochs")
             break
 
