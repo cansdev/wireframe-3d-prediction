@@ -149,13 +149,18 @@ def visualize_predicted_wireframe():
         predictions = model(point_cloud_tensor)
         
         # Extract predictions
-        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]
+        pred_vertices_full = predictions['vertices'].cpu().numpy()[0]  # (max_vertices, 4)
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices']
         
-        # Get the predicted vertex count and only use that many vertices
-        predicted_vertex_count = predictions['predicted_vertex_counts'].cpu().numpy()[0]
-        pred_vertices = pred_vertices_full[:predicted_vertex_count]  # Only use predicted count vertices
+        # Extract 3D coordinates and existence probabilities from 4D predictions
+        pred_vertices_3d_full = pred_vertices_full[:, :3]  # (max_vertices, 3) - coordinates
+        pred_existence_probs = pred_vertices_full[:, 3]   # (max_vertices,) - existence probabilities
+        
+        # Filter vertices based on existence probability threshold
+        existence_threshold = 0.5
+        valid_vertex_mask = pred_existence_probs > existence_threshold
+        pred_vertices = pred_vertices_3d_full[valid_vertex_mask]  # Only use vertices with high existence probability
         
         # Convert back to original scale - only the predicted vertices
         pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)

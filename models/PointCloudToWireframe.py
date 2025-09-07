@@ -74,7 +74,7 @@ class PointCloudToWireframe(nn.Module):
             # During training, use ground truth vertex counts for edge prediction
             for i in range(batch_size):
                 actual_count = target_vertex_counts[i].item()
-                sample_vertices = predicted_vertices[i:i+1, :actual_count, :]  # Only actual vertices
+                sample_vertices = predicted_vertices[i:i+1, :actual_count, :]  # Only actual vertices (3D)
                 
                 # Predict edges for actual vertex count
                 sample_edge_probs, sample_edge_indices = self.edge_predictor(sample_vertices)
@@ -84,7 +84,7 @@ class PointCloudToWireframe(nn.Module):
         else:
             # During inference, use all vertices
             for i in range(batch_size):
-                sample_vertices = predicted_vertices[i:i+1, :, :]  # All vertices
+                sample_vertices = predicted_vertices[i:i+1, :, :]  # All vertices (3D)
                 
                 # Predict edges
                 sample_edge_probs, sample_edge_indices = self.edge_predictor(sample_vertices)
