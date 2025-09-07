@@ -14,19 +14,21 @@ class WireframeLoss(nn.Module):
     and only computing losses on active vertices/edges.
     """
     
-    def __init__(self, vertex_weight=1.0, edge_weight=1.0):
+    def __init__(self, vertex_weight=1.0, edge_weight=1.0, existence_weight=1.0):
         """
         Initialize the combined wireframe loss
         
         Args:
             vertex_weight (float): Weight for vertex position loss (default: 1.0)
-            edge_weight (float): Weight for edge connectivity loss (default: 1.0) 
+            edge_weight (float): Weight for edge connectivity loss (default: 1.0)
+            existence_weight (float): Weight for vertex existence loss (default: 1.0)
         """
         super(WireframeLoss, self).__init__()
         
         # Store loss weights for different components
         self.vertex_weight = vertex_weight
         self.edge_weight = edge_weight
+        self.existence_weight = existence_weight
         
         # Initialize loss functions for different components
         self.mse_loss = nn.MSELoss()        # For vertex position regression
@@ -39,10 +41,12 @@ class WireframeLoss(nn.Module):
         Args:
             predictions (dict): Model predictions containing:
                 - vertices: Predicted vertex coordinates (batch_size, max_vertices, 3)
+                - existence_probabilities: Vertex existence probabilities (batch_size, max_vertices)
                 - edge_probs: Edge existence probabilities (batch_size, num_edges)
                 
             targets (dict): Ground truth targets containing:
                 - vertices: Target vertex coordinates (batch_size, max_vertices, 3)
+                - vertex_existence: Target vertex existence labels (batch_size, max_vertices)
                 - edge_labels: Target edge existence labels (batch_size, num_edges)
                 - vertex_counts: Target vertex counts (batch_size,)
                 
@@ -52,28 +56,28 @@ class WireframeLoss(nn.Module):
         batch_size = predictions['vertices'].shape[0]
         
         # COMPONENT 1: Vertex Position Loss (MSE on active vertices only)
-        # Vertex position loss (only for active vertices)
         pred_vertices = predictions['vertices']      # (batch_size, max_vertices, 3)
         target_vertices = targets['vertices']        # (batch_size, max_vertices, 3)
         
-        # Get actual vertex counts for proper masking
-        if 'actual_vertex_counts' in predictions:
-            vertex_counts = predictions['actual_vertex_counts']  # Use model's actual counts
-        else:
-            vertex_counts = targets['vertex_counts']             # Fallback to target counts
+        # Use target vertex existence for masking
+        target_existence = targets['vertex_existence']  # (batch_size, max_vertices) - binary labels
         
-        # Calculate vertex loss only for active vertices (mask-aware computation)
-        vertex_loss = 0
-        for i in range(batch_size):
-            count = vertex_counts[i].item()
-            if count > 0:  # Only compute loss if there are vertices to predict
-                pred_active = pred_vertices[i, :count, :]    # Active predicted vertices
-                target_active = target_vertices[i, :count, :] # Active target vertices
-                vertex_loss += self.mse_loss(pred_active, target_active)
-        vertex_loss = vertex_loss / batch_size  # Average over batch
+        # Calculate vertex loss only for existing vertices using mask
+        # Create mask for existing vertices
+        mask = target_existence.unsqueeze(-1)  # (batch_size, max_vertices, 1)
         
-        # COMPONENT 2: Edge Connectivity Loss (BCE on predicted edge probabilities)
-        # Edge connectivity loss
+        # Apply mask to both predictions and targets
+        masked_pred_vertices = pred_vertices * mask
+        masked_target_vertices = target_vertices * mask
+        
+        # Calculate MSE loss only on existing vertices
+        vertex_loss = self.mse_loss(masked_pred_vertices, masked_target_vertices)
+        
+        # COMPONENT 2: Vertex Existence Loss (BCE on existence probabilities)
+        pred_existence = predictions['existence_probabilities']  # (batch_size, max_vertices)
+        existence_loss = self.bce_loss(pred_existence, target_existence.float())
+        
+        # COMPONENT 3: Edge Connectivity Loss (BCE on predicted edge probabilities)
         pred_edge_probs = predictions['edge_probs']    # (batch_size, num_edges) - probabilities [0,1]
         target_edge_labels = targets['edge_labels']    # (batch_size, num_edges) - binary labels {0,1}
         
@@ -93,11 +97,13 @@ class WireframeLoss(nn.Module):
         # FINAL: Combine all loss components with respective weights
         # Combined loss with weighted sum of all components
         total_loss = (self.vertex_weight * vertex_loss +      # Coordinate accuracy
+                     self.existence_weight * existence_loss + # Vertex existence accuracy
                      self.edge_weight * edge_loss)            # Connectivity accuracy  
         
         # Return detailed loss breakdown for monitoring and debugging
         return {
-            'total_loss': total_loss,        # Combined weighted loss
-            'vertex_loss': vertex_loss,      # MSE loss for vertex positions
-            'edge_loss': edge_loss,          # BCE loss for edge connectivity
+            'total_loss': total_loss,          # Combined weighted loss
+            'vertex_loss': vertex_loss,        # MSE loss for vertex positions
+            'existence_loss': existence_loss,  # BCE loss for vertex existence
+            'edge_loss': edge_loss,            # BCE loss for edge connectivity
         }

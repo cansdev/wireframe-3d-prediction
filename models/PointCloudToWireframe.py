@@ -51,25 +51,28 @@ class PointCloudToWireframe(nn.Module):
         Returns:
             dict: Dictionary containing:
                 - vertices: Predicted vertex coordinates (batch_size, max_vertices, 3)
+                - existence_probabilities: Vertex existence probabilities (batch_size, max_vertices)
                 - edge_probs: Edge existence probabilities (batch_size, num_edges)
                 - edge_indices: List of edge index pairs
                 - global_features: Encoded global features
-                - actual_vertex_counts: Fixed vertex counts (all max_vertices)
+                - actual_vertex_counts: Dynamic vertex counts based on existence probabilities
         """
         
         # Encode point cloud
         global_features, point_features = self.encoder(point_cloud)
         
-        # Predict vertices (fixed count)
+        # Predict vertices with existence probabilities
         vertex_output = self.vertex_predictor(global_features, target_vertex_counts)
         predicted_vertices = vertex_output['vertices']  # (batch_size, max_vertices, 3)
+        existence_probabilities = vertex_output['existence_probabilities']  # (batch_size, max_vertices)
+        actual_vertex_counts = vertex_output['actual_vertex_counts']  # (batch_size,)
         
         # Predict edges for all vertices
         batch_size = predicted_vertices.shape[0]
         edge_probs_list = []
         edge_indices_list = []
         
-        # Use actual vertex counts from target for edge prediction during training
+        # Use dynamic vertex counts from existence probabilities for edge prediction
         if self.training and target_vertex_counts is not None:
             # During training, use ground truth vertex counts for edge prediction
             for i in range(batch_size):
@@ -82,9 +85,11 @@ class PointCloudToWireframe(nn.Module):
                 if i == 0:  # Store edge indices once (same pattern for all samples with same count)
                     edge_indices_list = sample_edge_indices
         else:
-            # During inference, use all vertices
+            # During inference, use dynamic vertex counts based on existence probabilities
             for i in range(batch_size):
-                sample_vertices = predicted_vertices[i:i+1, :, :]  # All vertices (3D)
+                dynamic_count = actual_vertex_counts[i].item()
+                # Use only vertices with existence probability > 0.5
+                sample_vertices = predicted_vertices[i:i+1, :dynamic_count, :]  # Only existing vertices (3D)
                 
                 # Predict edges
                 sample_edge_probs, sample_edge_indices = self.edge_predictor(sample_vertices)
@@ -106,9 +111,10 @@ class PointCloudToWireframe(nn.Module):
         
         return {
             'vertices': predicted_vertices,
+            'existence_probabilities': existence_probabilities,
             'edge_probs': padded_edge_probs,
             'edge_indices': edge_indices_list,
             'global_features': global_features,
-            'actual_vertex_counts': vertex_output['actual_vertex_counts']  # All equal to max_vertices
+            'actual_vertex_counts': actual_vertex_counts  # Dynamic counts based on existence probabilities
         }
 

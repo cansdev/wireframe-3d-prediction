@@ -10,14 +10,14 @@ class VertexPredictor(nn.Module):
     The number of vertices is now fixed based on max_vertices parameter.
     """
     
-    def __init__(self, global_feature_dim=512, max_vertices=64, vertex_dim=3):
+    def __init__(self, global_feature_dim=512, max_vertices=64, vertex_dim=4):
         """
         Initialize the vertex predictor
         
         Args:
             global_feature_dim (int): Dimension of input global features from encoder (default: 512)
-            max_vertices (int): Fixed number of vertices to predict (default: 64)
-            vertex_dim (int): Dimension of vertex coordinates (default: 3 for X,Y,Z)
+            max_vertices (int): Maximum number of vertices to predict (default: 64)
+            vertex_dim (int): Dimension of vertex features (default: 4 for X,Y,Z,existence_probability)
         """
         super(VertexPredictor, self).__init__()
         
@@ -53,8 +53,8 @@ class VertexPredictor(nn.Module):
             nn.Dropout(0.0),                    # No dropout
         )
         
-        # Final output layer for all vertex coordinates
-        self.final_layer = nn.Linear(1024, max_vertices * vertex_dim)  # Output: flattened coordinates
+        # Final output layer for all vertex features (coordinates + existence probability)
+        self.final_layer = nn.Linear(1024, max_vertices * vertex_dim)  # Output: flattened vertex features
         
         # Residual projection layers for better gradient flow
         self.residual_proj1 = nn.Linear(global_feature_dim, 2048)  # First residual projection
@@ -66,12 +66,13 @@ class VertexPredictor(nn.Module):
         
         Args:
             global_features (torch.Tensor): Global features from point cloud encoder (batch_size, global_feature_dim)
-            target_vertex_counts (torch.Tensor, optional): Ground truth vertex counts (kept for compatibility but ignored)
+            target_vertex_counts (torch.Tensor, optional): Ground truth vertex counts for dynamic prediction
             
         Returns:
             dict: Dictionary containing:
-                - vertices: Predicted vertex coordinates (batch_size, max_vertices, vertex_dim)
-                - actual_vertex_counts: Fixed vertex counts (batch_size,) - all equal to max_vertices
+                - vertices: Predicted vertex coordinates (batch_size, max_vertices, 3)
+                - existence_probabilities: Vertex existence probabilities (batch_size, max_vertices)
+                - actual_vertex_counts: Dynamic vertex counts based on existence probabilities
         """
         batch_size = global_features.shape[0]
         
@@ -87,14 +88,22 @@ class VertexPredictor(nn.Module):
         residual2 = self.residual_proj2(global_features)
         x = self.vertex_mlp4(x) + residual2      # Add second residual
         
-        # Generate final vertex coordinates
-        vertex_coords = self.final_layer(x)      # (batch_size, max_vertices * vertex_dim)
-        vertex_coords = vertex_coords.view(batch_size, self.max_vertices, self.vertex_dim)  # Reshape to 3D coordinates
+        # Generate final vertex features (coordinates + existence probability)
+        vertex_features = self.final_layer(x)      # (batch_size, max_vertices * vertex_dim)
+        vertex_features = vertex_features.view(batch_size, self.max_vertices, self.vertex_dim)  # Reshape to vertex features
         
-        # Return fixed vertex count (all vertices are active)
-        actual_vertex_counts = torch.full((batch_size,), self.max_vertices, dtype=torch.long, device=global_features.device)
+        # Split into coordinates and existence probabilities
+        vertex_coords = vertex_features[:, :, :3]  # First 3 dimensions are coordinates (x, y, z)
+        existence_logits = vertex_features[:, :, 3]  # 4th dimension is existence logit
+        existence_probabilities = torch.sigmoid(existence_logits)  # Convert to probabilities [0, 1]
+        
+        # Calculate dynamic vertex counts based on existence probabilities
+        # Use threshold of 0.5 to determine if vertex exists
+        vertex_exists = existence_probabilities > 0.5  # (batch_size, max_vertices)
+        actual_vertex_counts = vertex_exists.sum(dim=1)  # (batch_size,)
         
         return {
-            'vertices': vertex_coords,                        # Predicted 3D coordinates
-            'actual_vertex_counts': actual_vertex_counts      # Fixed vertex counts (all max_vertices)
+            'vertices': vertex_coords,                           # Predicted 3D coordinates (batch_size, max_vertices, 3)
+            'existence_probabilities': existence_probabilities,  # Vertex existence probabilities (batch_size, max_vertices)
+            'actual_vertex_counts': actual_vertex_counts         # Dynamic vertex counts based on probabilities
         }

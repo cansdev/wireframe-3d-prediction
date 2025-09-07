@@ -95,9 +95,16 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     else:
         edge_labels_batch = torch.zeros(batch_size, 0).to(device)
     
+    # Create vertex existence labels for each sample in the batch
+    vertex_existence_batch = torch.zeros(batch_size, max_vertices).to(device)
+    for i in range(batch_size):
+        actual_count = actual_vertex_counts[i].item()
+        vertex_existence_batch[i, :actual_count] = 1.0  # Mark existing vertices as 1
+    
     criterion = WireframeLoss(
         vertex_weight=20.0,  # Reduced vertex weight 
-        edge_weight=30.0     # Increased edge weight significantly
+        edge_weight=30.0,    # Increased edge weight significantly
+        existence_weight=10.0  # Weight for vertex existence prediction
     ) 
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
@@ -158,6 +165,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         # Calculate loss
         targets = {
             'vertices': target_vertices,
+            'vertex_existence': vertex_existence_batch,
             'edge_labels': edge_labels_batch,
             'vertex_counts': actual_vertex_counts
         }
@@ -198,6 +206,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         if epoch > 0 and epoch % 20 == 0:
             # Calculate loss component ratios
             vertex_loss_ratio = loss_dict['vertex_loss'].item() / total_loss.item()
+            existence_loss_ratio = loss_dict['existence_loss'].item() / total_loss.item()
             edge_loss_ratio = loss_dict['edge_loss'].item() / total_loss.item()
             
             # Dynamic loss weight adjustment for fine convergence
@@ -283,6 +292,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
             logger.info(f"Epoch {epoch:4d}/{num_epochs} | "
                        f"Total: {total_loss.item():.6f} | "
                        f"Vertex: {loss_dict['vertex_loss'].item():.6f} | "
+                       f"Existence: {loss_dict['existence_loss'].item():.6f} | "
                        f"Edge: {loss_dict['edge_loss'].item():.6f}")
             
             logger.info(f"           RMSE: {current_vertex_rmse:.6f} | "
@@ -296,9 +306,11 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
                 
                 # Log loss component ratios
                 vertex_ratio = loss_dict['vertex_loss'].item() / total_loss.item()
+                existence_ratio = loss_dict['existence_loss'].item() / total_loss.item()
                 edge_ratio = loss_dict['edge_loss'].item() / total_loss.item()
                 
                 logger.info(f"           Loss Ratios - Vertex: {vertex_ratio:.3f}, "
+                           f"Existence: {existence_ratio:.3f}, "
                            f"Edge: {edge_ratio:.3f}")
 
             # Log comprehensive metrics to wandb
@@ -307,6 +319,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
                     "epoch": epoch,
                     "total_loss": total_loss.item(),
                     "vertex_loss": loss_dict['vertex_loss'].item(),
+                    "existence_loss": loss_dict['existence_loss'].item(),
                     "edge_loss": loss_dict['edge_loss'].item(),
                     "vertex_rmse": current_vertex_rmse,
                     "learning_rate": current_lr,
