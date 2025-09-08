@@ -123,7 +123,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     # 2. Plateau reduction with conservative parameters
     scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.8, patience=50, threshold=0.005, 
-        threshold_mode='rel', cooldown=20, min_lr=learning_rate * 1e-3, verbose=False  # Higher min LR
+        threshold_mode='rel', cooldown=20, min_lr=learning_rate * 1e-3  # Higher min LR
     )
     
     # 3. Dynamic loss weight adjustment for fine-tuning phase
