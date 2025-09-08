@@ -62,7 +62,7 @@ class PointCloudToWireframe(nn.Module):
         global_features, point_features = self.encoder(point_cloud)
         
         # Predict vertices with existence probabilities
-        vertex_output = self.vertex_predictor(global_features, target_vertex_counts)
+        vertex_output = self.vertex_predictor(global_features, point_features, target_vertex_counts)
         predicted_vertices = vertex_output['vertices']  # (batch_size, max_vertices, 3)
         existence_probabilities = vertex_output['existence_probabilities']  # (batch_size, max_vertices)
         actual_vertex_counts = vertex_output['actual_vertex_counts']  # (batch_size,)
