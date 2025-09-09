@@ -67,16 +67,11 @@ class EdgePredictor(nn.Module):
             nn.Linear(hidden_dim // 4, 1)
         )
         
-        # Cache for edge indices to avoid recomputation for same vertex count
-        self.register_buffer('edge_indices_cache', None)
-        self.cached_num_vertices = None
-        
     def _get_edge_indices(self, num_vertices):
         """
         Generate all possible edge indices for a given number of vertices
         
         For N vertices, generates all unique pairs (i,j) where i < j.
-        Results are cached to avoid recomputation for the same vertex count.
         
         Args:
             num_vertices (int): Number of vertices in the wireframe
@@ -84,19 +79,14 @@ class EdgePredictor(nn.Module):
         Returns:
             torch.Tensor: Edge indices of shape (num_edges, 2) where num_edges = N*(N-1)/2
         """
-        # Check if we need to recompute edge indices
-        if self.cached_num_vertices != num_vertices or self.edge_indices_cache is None:
-            # Generate all unique vertex pairs (combinatorial approach)
-            indices = []
-            for i in range(num_vertices):
-                for j in range(i + 1, num_vertices):  # Only upper triangle (i < j)
-                    indices.append([i, j])
-            
-            # Cache the computed indices for efficiency
-            self.edge_indices_cache = torch.tensor(indices, dtype=torch.long, device=next(self.parameters()).device)
-            self.cached_num_vertices = num_vertices
-            
-        return self.edge_indices_cache
+        # Generate all unique vertex pairs (combinatorial approach)
+        indices = []
+        for i in range(num_vertices):
+            for j in range(i + 1, num_vertices):  # Only upper triangle (i < j)
+                indices.append([i, j])
+        
+        # ✅ Generate fresh indices each time - no caching
+        return torch.tensor(indices, dtype=torch.long, device=next(self.parameters()).device)
     
     def forward(self, vertices):
         """

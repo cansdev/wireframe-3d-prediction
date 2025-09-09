@@ -155,7 +155,7 @@ def create_individual_visualizations(model, sample_obj, device, output_dir, samp
         point_cloud_tensor = torch.FloatTensor(sample_obj.normalized_point_cloud).unsqueeze(0).to(device)
         predictions = model(point_cloud_tensor)
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
+        edge_indices = predictions['edge_indices'][0] # per-sample edge indices
     
     # Create edge probability visualization
     fig2 = visualize_edge_probabilities(pred_edge_probs, edge_indices)
@@ -177,7 +177,7 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         # Extract predictions
         pred_vertices = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
+        edge_indices = predictions['edge_indices'][0] # per-sample edge indices
         
         # Get actual number of vertices for this dataset
         actual_num_vertices = len(sample_obj.vertices)
@@ -190,21 +190,43 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         print(f"\n{sample_name} Analysis:")
         print("-" * 40)
         
-        # ===== BUILDING3D BENCHMARK METRICS =====
-        # ACO (Average Corner Offset) - vertex position accuracy
-        vertex_errors = np.linalg.norm(pred_vertices_original - true_vertices, axis=1)
-        aco = np.mean(vertex_errors)
-        
         # Corner (Vertex) metrics for Building3D
         # For corners, we consider a vertex correctly predicted if within a threshold
         corner_threshold = 2.0  # meters - adjust based on your scale
-        corner_correct = vertex_errors <= corner_threshold
-        corner_tp = np.sum(corner_correct)
-        corner_fp = actual_num_vertices - corner_tp  # assuming we predict exactly the right number
-        corner_fn = 0  # assuming we predict exactly the right number
         
-        cp = corner_tp / (corner_tp + corner_fp) if (corner_tp + corner_fp) > 0 else 0
-        cr = corner_tp / (corner_tp + corner_fn) if (corner_tp + corner_fn) > 0 else 0
+        # ===== BUILDING3D BENCHMARK METRICS =====
+        # ACO (Average Corner Offset) - vertex position accuracy
+        if len(pred_vertices_original) > 0 and len(true_vertices) > 0:
+            distances = cdist(pred_vertices_original, true_vertices)
+            vertex_errors = np.min(distances, axis=1)
+            aco = np.mean(vertex_errors)
+        else:
+            aco = float('inf')
+
+        if len(pred_vertices_original) > 0 and len(true_vertices) > 0:
+            distances = cdist(pred_vertices_original, true_vertices)
+            
+            # For each predicted vertex, check if it has a match within threshold
+            pred_has_match = np.min(distances, axis=1) <= corner_threshold
+            correctly_predicted_corners = np.sum(pred_has_match)
+            
+            # For each true vertex, check if it has a match within threshold  
+            true_has_match = np.min(distances, axis=0) <= corner_threshold
+            correctly_recalled_corners = np.sum(true_has_match)
+            
+            # Corner Precision: correctly predicted / total predicted
+            cp = correctly_predicted_corners / len(pred_vertices_original) if len(pred_vertices_original) > 0 else 0
+            
+            # Corner Recall: correctly recalled / total true
+            cr = correctly_recalled_corners / len(true_vertices) if len(true_vertices) > 0 else 0
+            
+        elif len(pred_vertices_original) == 0 and len(true_vertices) == 0:
+            cp = 1.0  # Perfect match when both empty
+            cr = 1.0
+        else:
+            cp = 0.0  # No match when counts differ
+            cr = 0.0
+
         c_f1 = 2 * cp * cr / (cp + cr) if (cp + cr) > 0 else 0
         
         print(f"Building3D Metrics:")

@@ -1,5 +1,7 @@
 import time
 import numpy as np
+from scipy.optimize import linear_sum_assignment # hungarian algorithm
+from scipy.spatial.distance import cdist # distance matrix
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -12,6 +14,24 @@ import wandb
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def hungarian_rmse(pred_vertices, true_vertices):
+    """Calculate RMSE using optimal Hungarian matching between predicted and true vertices"""
+    if len(pred_vertices) == 0 and len(true_vertices) == 0:
+        return 0.0  # Perfect match when both empty
+    if len(pred_vertices) == 0 or len(true_vertices) == 0:
+        return float('inf')  # Infinite error when one is empty
+    
+    # Create cost matrix (distances between all vertex pairs)
+    costs = cdist(pred_vertices, true_vertices)
+    
+    # Find optimal matching using Hungarian algorithm
+    pred_indices, true_indices = linear_sum_assignment(costs)
+    
+    # Calculate RMSE on optimally matched pairs
+    matched_pred = pred_vertices[pred_indices]
+    matched_true = true_vertices[true_indices]
+    
+    return np.sqrt(np.mean((matched_pred - matched_true) ** 2))
 
 def create_adjacency_matrix_from_predictions(edge_probs, edge_indices, num_vertices, threshold=0.5):
     """Convert edge predictions to adjacency matrix"""
@@ -102,9 +122,9 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         vertex_existence_batch[i, :actual_count] = 1.0  # Mark existing vertices as 1
     
     criterion = WireframeLoss(
-        vertex_weight=20.0,  # Reduced vertex weight 
-        edge_weight=30.0,    # Increased edge weight significantly
-        existence_weight=10.0  # Weight for vertex existence prediction
+        vertex_weight=25.0,  # Reduced vertex weight 
+        edge_weight=35.0,    # Increased edge weight significantly
+        existence_weight=15.0  # Weight for vertex existence prediction
     ) 
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
@@ -246,7 +266,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
             scalers = batch_data['scalers']
             pred_vertices_orig = scalers[0].inverse_transform(pred_vertices_actual)
             target_vertices_orig = scalers[0].inverse_transform(target_vertices_actual)
-            current_vertex_rmse = np.sqrt(np.mean((pred_vertices_orig - target_vertices_orig) ** 2))
+            current_vertex_rmse = hungarian_rmse(pred_vertices_orig, target_vertices_orig)
             vertex_rmse_history.append(current_vertex_rmse)
         
         # Apply plateau scheduler based on vertex RMSE (more conservative)
@@ -361,50 +381,41 @@ def evaluate_model(model, batch_data, device, max_vertices):
         # Prepare input - convert entire batch
         point_cloud_tensor = torch.FloatTensor(point_clouds).to(device)
         
-        # Get actual vertex counts for evaluation
-        actual_vertex_counts = []
-        for sample in original_samples:
-            actual_vertex_counts.append(len(sample.vertices))
-        actual_vertex_counts = torch.tensor(actual_vertex_counts, dtype=torch.long).to(device)
-        
-        # Forward pass on entire batch
-        predictions = model(point_cloud_tensor, actual_vertex_counts)
+        # Forward pass without ground truth hints (pure inference)
+        predictions = model(point_cloud_tensor, target_vertex_counts=None)
         
         # Process each sample in the batch
         for i in range(len(point_clouds)):
             # Get predictions for this sample
             pred_vertices_full = predictions['vertices'][i].cpu().numpy()
             pred_edge_probs = predictions['edge_probs'][i].cpu().numpy()
-            edge_indices = predictions['edge_indices']
+            edge_indices = predictions['edge_indices'][i]
             
             # Get original sample for this sample
             original_sample = original_samples[i]
             scaler = scalers[i]
             
-            # Use actual vertex count (since we're using fixed prediction now)
-            actual_vertex_count = len(original_sample.vertices)
-            
-            # Use only the actual number of vertices for evaluation
-            pred_vertices = pred_vertices_full[:actual_vertex_count]
+            # Use predicted vertex count from existence probabilities
+            predicted_vertex_count = predictions['actual_vertex_counts'][i].item()
+
+            # Use only the predicted number of vertices for evaluation
+            pred_vertices = pred_vertices_full[:predicted_vertex_count]
             
             # Convert back to original scale - only the actual vertices
-            if actual_vertex_count > 0:
+            if predicted_vertex_count > 0:
                 pred_vertices_original = scaler.inverse_transform(pred_vertices)
             else:
                 pred_vertices_original = np.array([]).reshape(0, 3)
             
             true_vertices_original = original_sample.vertices
             
-            # Calculate metrics only on actual vertices
-            if actual_vertex_count > 0 and len(true_vertices_original) > 0:
-                vertex_mse = np.mean((pred_vertices_original - true_vertices_original) ** 2)
-                vertex_rmse = np.sqrt(vertex_mse)
-            else:
-                vertex_rmse = float('inf')
+            # Problem 1: Calculate RMSE using Hungarian matching
+            # Calculates RMSE using only the first sample in the batch, could be using all samples and taking mean
+            vertex_rmse = hungarian_rmse(pred_vertices_original, true_vertices_original)
             
             # Edge accuracy (threshold at 0.5)
             # Generate edge indices for the actual number of vertices
-            actual_edge_indices = [(j, k) for j in range(actual_vertex_count) for k in range(j+1, actual_vertex_count)]
+            actual_edge_indices = edge_indices
             
             # Only take the edge probabilities for valid edges (based on actual vertices)
             num_actual_edges = len(actual_edge_indices)
@@ -413,16 +424,18 @@ def evaluate_model(model, batch_data, device, max_vertices):
             pred_adj_matrix = create_adjacency_matrix_from_predictions(
                 torch.FloatTensor(pred_edge_probs_actual).unsqueeze(0),
                 actual_edge_indices,
-                actual_vertex_count,
-                threshold=0.5
+                predicted_vertex_count,
+                threshold=0.3
             )[0].numpy()
             
-            # Get original edge set and create adjacency matrix for evaluation
+            # Problem 2: Adjacency matrix for true edges using predicted vertex count for compatibility
+            # True adjacency matrix is (16,16) while predicted adjacency matrix is (6,6)
             true_edge_set = original_sample.edge_set
-            true_adj_matrix = np.zeros((actual_vertex_count, actual_vertex_count))
+            true_vertex_count = len(true_vertices_original)
+            true_adj_matrix = np.zeros((predicted_vertex_count, predicted_vertex_count))
             for edge_tuple in true_edge_set:
                 v1, v2 = edge_tuple
-                if v1 < actual_vertex_count and v2 < actual_vertex_count:
+                if v1 < predicted_vertex_count and v2 < predicted_vertex_count:
                     true_adj_matrix[v1, v2] = 1
                     true_adj_matrix[v2, v1] = 1
             
@@ -448,9 +461,10 @@ def evaluate_model(model, batch_data, device, max_vertices):
                 'edge_recall': recall,
                 'edge_f1_score': f1_score,
                 'predicted_vertices': pred_vertices_original,
+                'true_vertices': true_vertices_original,
                 'predicted_adjacency': pred_adj_matrix,
                 'edge_probabilities': pred_edge_probs,
-                'actual_vertex_count': actual_vertex_count,
+                'predicted_vertex_count': predicted_vertex_count,
                 'true_vertex_count': len(true_vertices_original)
             }
             

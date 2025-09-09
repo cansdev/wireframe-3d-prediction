@@ -1,6 +1,5 @@
 import numpy as np
-
-
+from scipy.spatial.distance import cdist
 
 def compute_building3d_metrics(results):
     """Compute Building3D benchmark metrics from evaluation results"""
@@ -15,35 +14,52 @@ def compute_building3d_metrics(results):
     for result in results:
         # Extract data for proper Building3D calculations
         pred_vertices = result['predicted_vertices']
-        true_vertex_count = result['true_vertex_count']
+        true_vertices = result['true_vertices']
         
-        # Calculate ACO (Average Corner Offset) - use actual vertex positions
-        if len(pred_vertices) > 0 and true_vertex_count > 0:
-            # For proper ACO, we need true vertex positions, but we only have count
-            # Use vertex RMSE as approximation for now
-            aco = result['vertex_rmse']
+        # Calculate ACO (Average Corner Offset) - proper implementation
+        if len(pred_vertices) > 0 and len(true_vertices) > 0:
+            # For each predicted vertex, find distance to nearest true vertex
+            distances = cdist(pred_vertices, true_vertices)
+            min_distances = np.min(distances, axis=1)  # closest true vertex for each prediction
+            aco = np.mean(min_distances)
         else:
             aco = float('inf')
         
-        # Use actual edge metrics from evaluation
+        # Corner Precision and Recall - proper per-vertex calculation
+        corner_threshold = 2.0  # meters - adjust based on your scale
+        
+        if len(pred_vertices) > 0 and len(true_vertices) > 0:
+            # Find matches using Hungarian-style assignment but with threshold
+            distances = cdist(pred_vertices, true_vertices)
+            
+            # For each predicted vertex, check if it has a match within threshold
+            pred_has_match = np.min(distances, axis=1) <= corner_threshold
+            correctly_predicted_corners = np.sum(pred_has_match)
+            
+            # For each true vertex, check if it has a match within threshold  
+            true_has_match = np.min(distances, axis=0) <= corner_threshold
+            correctly_recalled_corners = np.sum(true_has_match)
+            
+            # Corner Precision: correctly predicted / total predicted
+            cp = correctly_predicted_corners / len(pred_vertices) if len(pred_vertices) > 0 else 0
+            
+            # Corner Recall: correctly recalled / total true
+            cr = correctly_recalled_corners / len(true_vertices) if len(true_vertices) > 0 else 0
+            
+        elif len(pred_vertices) == 0 and len(true_vertices) == 0:
+            cp = 1.0  # Perfect match when both empty
+            cr = 1.0
+        else:
+            cp = 0.0  # No match when counts differ
+            cr = 0.0
+        
+        # Corner F1 score
+        c_f1 = 2 * cp * cr / (cp + cr) if (cp + cr) > 0 else 0
+        
+        # Edge metrics (these were already correct)
         ep = result['edge_precision']
         er = result['edge_recall']
         e_f1 = result['edge_f1_score']
-        
-        # For corner metrics, use a threshold-based approach
-        # Consider a vertex "correctly predicted" if within threshold
-        corner_threshold = 2.0  # meters - adjust based on your scale
-        vertex_rmse = result['vertex_rmse']
-        
-        # Simplified corner precision/recall based on RMSE threshold
-        if vertex_rmse <= corner_threshold:
-            cp = 1.0  # Good precision if RMSE is low
-            cr = 1.0  # Good recall if RMSE is low
-        else:
-            cp = 0.0  # Poor precision if RMSE is high
-            cr = 0.0  # Poor recall if RMSE is high
-        
-        c_f1 = 2 * cp * cr / (cp + cr) if (cp + cr) > 0 else 0
         
         all_aco.append(aco)
         all_cp.append(cp)

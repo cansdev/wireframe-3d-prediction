@@ -82,8 +82,7 @@ class PointCloudToWireframe(nn.Module):
                 # Predict edges for actual vertex count
                 sample_edge_probs, sample_edge_indices = self.edge_predictor(sample_vertices)
                 edge_probs_list.append(sample_edge_probs[0])
-                if i == 0:  # Store edge indices once (same pattern for all samples with same count)
-                    edge_indices_list = sample_edge_indices
+                edge_indices_list.append(sample_edge_indices)  # ✅ Store for each sample
         else:
             # During inference, use dynamic vertex counts based on existence probabilities
             for i in range(batch_size):
@@ -94,10 +93,12 @@ class PointCloudToWireframe(nn.Module):
                 # Predict edges
                 sample_edge_probs, sample_edge_indices = self.edge_predictor(sample_vertices)
                 edge_probs_list.append(sample_edge_probs[0])
-                if i == 0:  # Store edge indices once
-                    edge_indices_list = sample_edge_indices
+                edge_indices_list.append(sample_edge_indices)  # ✅ Store for each sample
+                
+                # Pad edge predictions for batch processing
+                # max_edges = max([len(ep) for ep in edge_probs_list]) if edge_probs_list else 0 # This line was moved outside
         
-        # Pad edge predictions for batch processing
+        # ✅ Pad edge predictions for batch processing (for BOTH training and inference)
         max_edges = max([len(ep) for ep in edge_probs_list]) if edge_probs_list else 0
         
         if max_edges > 0:
@@ -113,7 +114,7 @@ class PointCloudToWireframe(nn.Module):
             'vertices': predicted_vertices,
             'existence_probabilities': existence_probabilities,
             'edge_probs': padded_edge_probs,
-            'edge_indices': edge_indices_list,
+            'edge_indices': edge_indices_list, # now a list of per-sample edge indices
             'global_features': global_features,
             'actual_vertex_counts': actual_vertex_counts  # Dynamic counts based on existence probabilities
         }

@@ -72,7 +72,7 @@ def visualize_prediction_comparison(dataset, model, device):
         # Extract predictions
         pred_vertices = predictions['vertices'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
+        edge_indices = predictions['edge_indices'][0] # per-sample edge indices
         
         # Get actual vertex count to avoid using padded vertices
         actual_vertex_count = len(dataset.vertices)
