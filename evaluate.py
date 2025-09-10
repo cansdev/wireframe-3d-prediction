@@ -176,15 +176,19 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         
         # Extract predictions
         pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_existence_probs = predictions['existence_probabilities'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices'][0] # per-sample edge indices
-        
-        # Get actual number of vertices for this dataset
-        actual_num_vertices = len(sample_obj.vertices)
-        pred_vertices_actual = pred_vertices[:actual_num_vertices]
+
+        # Use existence probability to filter out vertices
+        existence_threshold = 0.5
+        valid_vertex_mask = pred_existence_probs > existence_threshold
+        pred_vertices_filtered = pred_vertices[valid_vertex_mask]
+
+        original_indices = np.where(valid_vertex_mask)[0]
         
         # Convert back to original scale
-        pred_vertices_original = sample_obj.spatial_scaler.inverse_transform(pred_vertices_actual)
+        pred_vertices_original = sample_obj.spatial_scaler.inverse_transform(pred_vertices_filtered)
         true_vertices = sample_obj.vertices
         
         print(f"\n{sample_name} Analysis:")
@@ -202,6 +206,7 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
             aco = np.mean(vertex_errors)
         else:
             aco = float('inf')
+            vertex_errors = np.array([]) # empty array for edge cases
 
         if len(pred_vertices_original) > 0 and len(true_vertices) > 0:
             distances = cdist(pred_vertices_original, true_vertices)
@@ -237,10 +242,13 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         
         # ===== OUR CUSTOM METRICS =====
         print(f"Custom Vertex Analysis:")
-        print(f"  Average error: {vertex_errors.mean():.6f}")
-        print(f"  Max error: {vertex_errors.max():.6f}")
-        print(f"  Min error: {vertex_errors.min():.6f}")
-        print(f"  Std deviation: {vertex_errors.std():.6f}")
+        if len(vertex_errors) > 0:
+            print(f"  Average error: {vertex_errors.mean():.6f}")
+            print(f"  Max error: {vertex_errors.max():.6f}")
+            print(f"  Min error: {vertex_errors.min():.6f}")
+            print(f"  Std deviation: {vertex_errors.std():.6f}")
+        else:
+            print(f"  No valid vertex comparisons available")
         
         # Edge analysis using edge set
         true_edges = sample_obj.edge_set if hasattr(sample_obj, 'edge_set') and sample_obj.edge_set else set()
@@ -252,8 +260,11 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
         
         predicted_edges = set()
         for idx, (i, j) in enumerate(edge_indices):
-            if i < actual_num_vertices and j < actual_num_vertices and pred_edge_probs[idx] > 0.5:
-                predicted_edges.add((min(i, j), max(i, j)))
+            if pred_edge_probs[idx] > 0.5:
+                # Map filtered -> original indices
+                orig_i = original_indices[i] if i < len(original_indices) else i
+                orig_j = original_indices[j] if j < len(original_indices) else j
+                predicted_edges.add((min(orig_i, orig_j), max(orig_i, orig_j)))
         
         # ===== BUILDING3D EDGE METRICS =====
         edge_tp = len(true_edges & predicted_edges)
@@ -317,7 +328,7 @@ def analyze_individual_predictions(model, sample_obj, device, sample_name):
             'building3d_e_f1': e_f1,
             
             # Our custom metrics (kept separate)
-            'vertex_rmse': np.sqrt(np.mean(vertex_errors**2)),
+            'vertex_rmse': np.sqrt(np.mean(vertex_errors**2)) if len(vertex_errors) > 0 else float('inf'),
             'edge_precision': precision,
             'edge_recall': recall,
             'edge_f1_score': f1_score,

@@ -4,30 +4,30 @@ COMPREHENSIVE TEST RESULTS SUMMARY
 
 BUILDING3D BENCHMARK METRICS (Global Averages):
 --------------------------------------------------
-ACO (Average Corner Offset): 4.013357
-CP (Corner Precision): 0.124929
-CR (Corner Recall): 0.143312
-C-F1 (Corner F1): 0.132878
-EP (Edge Precision): 0.330019
-ER (Edge Recall): 0.150998
-E-F1 (Edge F1): 0.190332
+ACO (Average Corner Offset): 3.695055
+CP (Corner Precision): 0.136364
+CR (Corner Recall): 0.073341
+C-F1 (Corner F1): 0.088496
+EP (Edge Precision): 0.196429
+ER (Edge Recall): 0.132335
+E-F1 (Edge F1): 0.150687
 
 OUR CUSTOM METRICS (Global Aggregation):
 --------------------------------------------------
-Global Vertex RMSE: 3.736346
-Global Edge Precision: 0.217391
-Global Edge Recall: 0.068493
-Global Edge F1-Score: 0.104167
-Total True Positives: 10
-Total False Positives: 36
-Total False Negatives: 136
+Global Vertex RMSE: 3.978243
+Global Edge Precision: 0.215686
+Global Edge Recall: 0.075342
+Global Edge F1-Score: 0.111675
+Total True Positives: 11
+Total False Positives: 40
+Total False Negatives: 135
 
 PER-SAMPLE AVERAGES (for comparison):
 ----------------------------------------
-Average Vertex RMSE: 4.200572 ± 1.066603
-Average Edge Precision: 0.330019 ± 0.349284
-Average Edge Recall: 0.150998 ± 0.166165
-Average Edge F1-Score: 0.190332 ± 0.204085
+Average Vertex RMSE: 3.936952 ± 0.770385
+Average Edge Precision: 0.196429 ± 0.134818
+Average Edge Recall: 0.132335 ± 0.135923
+Average Edge F1-Score: 0.150687 ± 0.133449
 
 CORNER-BASED METRICS (per-sample averages):
 ----------------------------------------
@@ -38,154 +38,94 @@ Average C-F1 (Corner F1): 0.000000 ± 0.000000
 
 ENHANCED EDGE METRICS (per-sample averages):
 ----------------------------------------
-Average EP (Edge Precision): 0.330019 ± 0.349284
-Average ER (Edge Recall): 0.150998 ± 0.166165
-Average E-F1 (Edge F1): 0.190332 ± 0.204085
+Average EP (Edge Precision): 0.196429 ± 0.134818
+Average ER (Edge Recall): 0.132335 ± 0.135923
+Average E-F1 (Edge F1): 0.150687 ± 0.133449
 
 INDIVIDUAL RESULTS:
 ------------------------------
 test_sample_1:
-  Vertex RMSE: 3.301968
-  Edge Precision: 0.000000
-  Edge Recall: 0.000000
-  Edge F1-Score: 0.000000
-  ACO (Corner Overlap): 0.000000
-  CP (Corner Precision): 0.000000
-  CR (Corner Recall): 0.000000
-  C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.000000
-  ER (Edge Recall): 0.000000
-  E-F1 (Edge F1): 0.000000
-  True Edges: 16
-  Predicted Edges: 1
-
-  Building3D - ACO: 3.203386, CP: 0.125000, CR: 0.125000, C-F1: 0.125000
-  Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
-  Custom - Vertex RMSE: 3.301968, Edge F1: 0.000000
-  True Edges: 16, Predicted Edges: 1
-
-test_sample_2:
-  Vertex RMSE: 5.480398
-  Edge Precision: 0.750000
-  Edge Recall: 0.428571
-  Edge F1-Score: 0.545455
-  ACO (Corner Overlap): 0.000000
-  CP (Corner Precision): 0.000000
-  CR (Corner Recall): 0.000000
-  C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.750000
-  ER (Edge Recall): 0.428571
-  E-F1 (Edge F1): 0.545455
-  True Edges: 7
-  Predicted Edges: 4
-
-  Building3D - ACO: 4.991180, CP: 0.166667, CR: 0.166667, C-F1: 0.166667
-  Building3D - EP: 0.750000, ER: 0.428571, E-F1: 0.545455
-  Custom - Vertex RMSE: 5.480398, Edge F1: 0.545455
-  True Edges: 7, Predicted Edges: 4
-
-test_sample_3:
-  Vertex RMSE: 3.557118
-  Edge Precision: 0.000000
-  Edge Recall: 0.000000
-  Edge F1-Score: 0.000000
-  ACO (Corner Overlap): 0.000000
-  CP (Corner Precision): 0.000000
-  CR (Corner Recall): 0.000000
-  C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.000000
-  ER (Edge Recall): 0.000000
-  E-F1 (Edge F1): 0.000000
-  True Edges: 30
-  Predicted Edges: 9
-
-  Building3D - ACO: 3.345782, CP: 0.153846, CR: 0.153846, C-F1: 0.153846
-  Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
-  Custom - Vertex RMSE: 3.557118, Edge F1: 0.000000
-  True Edges: 30, Predicted Edges: 9
-
-test_sample_4:
-  Vertex RMSE: 5.479385
-  Edge Precision: 1.000000
-  Edge Recall: 0.250000
-  Edge F1-Score: 0.400000
-  ACO (Corner Overlap): 0.000000
-  CP (Corner Precision): 0.000000
-  CR (Corner Recall): 0.000000
-  C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 1.000000
-  ER (Edge Recall): 0.250000
-  E-F1 (Edge F1): 0.400000
-  True Edges: 4
-  Predicted Edges: 1
-
-  Building3D - ACO: 5.420418, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
-  Building3D - EP: 1.000000, ER: 0.250000, E-F1: 0.400000
-  Custom - Vertex RMSE: 5.479385, Edge F1: 0.400000
-  True Edges: 4, Predicted Edges: 1
-
-test_sample_5:
-  Vertex RMSE: 4.347125
-  Edge Precision: 0.181818
+  Vertex RMSE: 3.943408
+  Edge Precision: 0.250000
   Edge Recall: 0.125000
-  Edge F1-Score: 0.148148
+  Edge F1-Score: 0.166667
   ACO (Corner Overlap): 0.000000
   CP (Corner Precision): 0.000000
   CR (Corner Recall): 0.000000
   C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.181818
+  EP (Edge Precision): 0.250000
   ER (Edge Recall): 0.125000
-  E-F1 (Edge F1): 0.148148
+  E-F1 (Edge F1): 0.166667
   True Edges: 16
-  Predicted Edges: 11
-
-  Building3D - ACO: 4.146454, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
-  Building3D - EP: 0.181818, ER: 0.125000, E-F1: 0.148148
-  Custom - Vertex RMSE: 4.347125, Edge F1: 0.148148
-  True Edges: 16, Predicted Edges: 11
-
-test_sample_6:
-  Vertex RMSE: 5.223514
-  Edge Precision: 0.375000
-  Edge Recall: 0.375000
-  Edge F1-Score: 0.375000
-  ACO (Corner Overlap): 0.000000
-  CP (Corner Precision): 0.000000
-  CR (Corner Recall): 0.000000
-  C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.375000
-  ER (Edge Recall): 0.375000
-  E-F1 (Edge F1): 0.375000
-  True Edges: 8
   Predicted Edges: 8
 
-  Building3D - ACO: 5.074240, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
-  Building3D - EP: 0.375000, ER: 0.375000, E-F1: 0.375000
-  Custom - Vertex RMSE: 5.223514, Edge F1: 0.375000
-  True Edges: 8, Predicted Edges: 8
+  Building3D - ACO: 3.782407, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
+  Building3D - EP: 0.250000, ER: 0.125000, E-F1: 0.166667
+  Custom - Vertex RMSE: 3.943408, Edge F1: 0.166667
+  True Edges: 16, Predicted Edges: 8
 
-test_sample_7:
-  Vertex RMSE: 2.349594
-  Edge Precision: 0.333333
-  Edge Recall: 0.029412
+test_sample_2:
+  Vertex RMSE: 4.942370
+  Edge Precision: 0.428571
+  Edge Recall: 0.428571
+  Edge F1-Score: 0.428571
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.428571
+  ER (Edge Recall): 0.428571
+  E-F1 (Edge F1): 0.428571
+  True Edges: 7
+  Predicted Edges: 7
+
+  Building3D - ACO: 4.601193, CP: 0.100000, CR: 0.166667, C-F1: 0.125000
+  Building3D - EP: 0.428571, ER: 0.428571, E-F1: 0.428571
+  Custom - Vertex RMSE: 4.942370, Edge F1: 0.428571
+  True Edges: 7, Predicted Edges: 7
+
+test_sample_3:
+  Vertex RMSE: 3.736487
+  Edge Precision: 0.142857
+  Edge Recall: 0.033333
   Edge F1-Score: 0.054054
   ACO (Corner Overlap): 0.000000
   CP (Corner Precision): 0.000000
   CR (Corner Recall): 0.000000
   C-F1 (Corner F1): 0.000000
-  EP (Edge Precision): 0.333333
-  ER (Edge Recall): 0.029412
+  EP (Edge Precision): 0.142857
+  ER (Edge Recall): 0.033333
   E-F1 (Edge F1): 0.054054
-  True Edges: 34
-  Predicted Edges: 3
+  True Edges: 30
+  Predicted Edges: 7
 
-  Building3D - ACO: 2.172906, CP: 0.470588, CR: 0.617647, C-F1: 0.534181
-  Building3D - EP: 0.333333, ER: 0.029412, E-F1: 0.054054
-  Custom - Vertex RMSE: 2.349594, Edge F1: 0.054054
-  True Edges: 34, Predicted Edges: 3
+  Building3D - ACO: 3.339247, CP: 0.200000, CR: 0.076923, C-F1: 0.111111
+  Building3D - EP: 0.142857, ER: 0.033333, E-F1: 0.054054
+  Custom - Vertex RMSE: 3.736487, Edge F1: 0.054054
+  True Edges: 30, Predicted Edges: 7
 
-test_sample_8:
-  Vertex RMSE: 3.865474
+test_sample_4:
+  Vertex RMSE: 4.181606
+  Edge Precision: 0.250000
+  Edge Recall: 0.250000
+  Edge F1-Score: 0.250000
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.250000
+  ER (Edge Recall): 0.250000
+  E-F1 (Edge F1): 0.250000
+  True Edges: 4
+  Predicted Edges: 4
+
+  Building3D - ACO: 4.099798, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
+  Building3D - EP: 0.250000, ER: 0.250000, E-F1: 0.250000
+  Custom - Vertex RMSE: 4.181606, Edge F1: 0.250000
+  True Edges: 4, Predicted Edges: 4
+
+test_sample_5:
+  Vertex RMSE: 4.072215
   Edge Precision: 0.000000
   Edge Recall: 0.000000
   Edge F1-Score: 0.000000
@@ -196,11 +136,71 @@ test_sample_8:
   EP (Edge Precision): 0.000000
   ER (Edge Recall): 0.000000
   E-F1 (Edge F1): 0.000000
-  True Edges: 31
-  Predicted Edges: 9
+  True Edges: 16
+  Predicted Edges: 6
 
-  Building3D - ACO: 3.752493, CP: 0.083333, CR: 0.083333, C-F1: 0.083333
+  Building3D - ACO: 3.638412, CP: 0.200000, CR: 0.125000, C-F1: 0.153846
   Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
-  Custom - Vertex RMSE: 3.865474, Edge F1: 0.000000
-  True Edges: 31, Predicted Edges: 9
+  Custom - Vertex RMSE: 4.072215, Edge F1: 0.000000
+  True Edges: 16, Predicted Edges: 6
+
+test_sample_6:
+  Vertex RMSE: 4.884519
+  Edge Precision: 0.250000
+  Edge Recall: 0.125000
+  Edge F1-Score: 0.166667
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.250000
+  ER (Edge Recall): 0.125000
+  E-F1 (Edge F1): 0.166667
+  True Edges: 8
+  Predicted Edges: 4
+
+  Building3D - ACO: 4.699997, CP: 0.000000, CR: 0.000000, C-F1: 0.000000
+  Building3D - EP: 0.250000, ER: 0.125000, E-F1: 0.166667
+  Custom - Vertex RMSE: 4.884519, Edge F1: 0.166667
+  True Edges: 8, Predicted Edges: 4
+
+test_sample_7:
+  Vertex RMSE: 2.402002
+  Edge Precision: 0.000000
+  Edge Recall: 0.000000
+  Edge F1-Score: 0.000000
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.000000
+  ER (Edge Recall): 0.000000
+  E-F1 (Edge F1): 0.000000
+  True Edges: 34
+  Predicted Edges: 3
+
+  Building3D - ACO: 2.170506, CP: 0.500000, CR: 0.176471, C-F1: 0.260870
+  Building3D - EP: 0.000000, ER: 0.000000, E-F1: 0.000000
+  Custom - Vertex RMSE: 2.402002, Edge F1: 0.000000
+  True Edges: 34, Predicted Edges: 3
+
+test_sample_8:
+  Vertex RMSE: 3.333011
+  Edge Precision: 0.250000
+  Edge Recall: 0.096774
+  Edge F1-Score: 0.139535
+  ACO (Corner Overlap): 0.000000
+  CP (Corner Precision): 0.000000
+  CR (Corner Recall): 0.000000
+  C-F1 (Corner F1): 0.000000
+  EP (Edge Precision): 0.250000
+  ER (Edge Recall): 0.096774
+  E-F1 (Edge F1): 0.139535
+  True Edges: 31
+  Predicted Edges: 12
+
+  Building3D - ACO: 3.228880, CP: 0.090909, CR: 0.041667, C-F1: 0.057143
+  Building3D - EP: 0.250000, ER: 0.096774, E-F1: 0.139535
+  Custom - Vertex RMSE: 3.333011, Edge F1: 0.139535
+  True Edges: 31, Predicted Edges: 12
 

@@ -71,24 +71,36 @@ def visualize_prediction_comparison(dataset, model, device):
         
         # Extract predictions
         pred_vertices = predictions['vertices'].cpu().numpy()[0]
+        pred_existence_probs = predictions['existence_probabilities'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
         edge_indices = predictions['edge_indices'][0] # per-sample edge indices
-        
-        # Get actual vertex count to avoid using padded vertices
-        actual_vertex_count = len(dataset.vertices)
-        
-        # Only use the first actual_vertex_count vertices to avoid spurious center vertices from padding
-        pred_vertices = pred_vertices[:actual_vertex_count]
+
+        existence_threshold = 0.5
+        valid_vertex_mask = pred_existence_probs > existence_threshold
+        pred_vertices_filtered = pred_vertices[valid_vertex_mask]
         
         # Convert back to original scale
-        pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices)
+        pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices_filtered)
         
+        # mapping original indices -> filtered indices
+        original_to_filtered = {}
+        filtered_idx = 0
+        for original_idx in range(len(valid_vertex_mask)):
+            if valid_vertex_mask[original_idx]:
+                original_to_filtered[original_idx] = filtered_idx
+                filtered_idx += 1
+
         # Create predicted edges (threshold at 0.5, only between valid vertices)
         pred_edges = []
         for idx, (i, j) in enumerate(edge_indices):
-            # Only consider edges between valid vertices (not padded ones)
-            if pred_edge_probs[idx] > 0.5 and i < actual_vertex_count and j < actual_vertex_count:
-                pred_edges.append([i, j])
+            # Only consider edges between valid vertices and with high edge probability
+            if (pred_edge_probs[idx] > 0.5 and 
+                i in original_to_filtered and 
+                j in original_to_filtered):
+                # Map to filtered vertex indices
+                filtered_i = original_to_filtered[i]
+                filtered_j = original_to_filtered[j]
+                pred_edges.append([filtered_i, filtered_j])
         pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
     
     # Create comparison visualization

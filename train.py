@@ -122,7 +122,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         vertex_existence_batch[i, :actual_count] = 1.0  # Mark existing vertices as 1
     
     criterion = WireframeLoss(
-        vertex_weight=2.0,  # Reduced vertex weight 
+        vertex_weight=3.0,  # Reduced vertex weight 
         edge_weight=1.0,    # Increased edge weight significantly
         existence_weight=1.5  # Weight for vertex existence prediction
     ) 
@@ -130,7 +130,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     
     # 5. Fine-tuning parameters (define first)
     warmup_epochs = 30  # Reduced warmup
-    warmup_factor = 0.1
+    warmup_factor = 0.01
     fine_tuning_start = 200  # Start fine-tuning when performance is stable
     # REMOVED: ultra_fine_tuning_start - causes RMSE degradation
     
@@ -148,7 +148,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
 
     # 3. Multi-component learning rates for different loss components
     vertex_lr_multiplier = 1.0
-    edge_lr_multiplier = 1.0
+    edge_lr_multiplier = 1.2
     existence_lr_multiplier = 1.0
     
     # Training loop
@@ -213,9 +213,9 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
             if epoch == fine_tuning_start:
                 logger.info(f"Entering fine-tuning phase at epoch {epoch}")
             # Use very conservative decay to maintain learning capability
-            decay_factor = 0.9998  # Very slow decay
+            decay_factor = 0.99995  # Very slow decay
             current_lr = current_lr_base * (decay_factor ** (epoch - fine_tuning_start))
-            min_lr = learning_rate * 1e-3  # Much higher minimum LR
+            min_lr = learning_rate * 0.01  # Much higher minimum LR
             for param_group in optimizer.param_groups:
                 param_group['lr'] = max(current_lr, min_lr)
         
