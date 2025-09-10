@@ -122,9 +122,9 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         vertex_existence_batch[i, :actual_count] = 1.0  # Mark existing vertices as 1
     
     criterion = WireframeLoss(
-        vertex_weight=25.0,  # Reduced vertex weight 
-        edge_weight=35.0,    # Increased edge weight significantly
-        existence_weight=15.0  # Weight for vertex existence prediction
+        vertex_weight=2.0,  # Reduced vertex weight 
+        edge_weight=1.0,    # Increased edge weight significantly
+        existence_weight=1.5  # Weight for vertex existence prediction
     ) 
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
@@ -145,14 +145,11 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         optimizer, mode='min', factor=0.8, patience=50, threshold=0.005, 
         threshold_mode='rel', cooldown=20, min_lr=learning_rate * 1e-3  # Higher min LR
     )
-    
-    # 3. Dynamic loss weight adjustment for fine-tuning phase
-    initial_vertex_weight = 20.0  # Reduced initial vertex weight
-    initial_edge_weight = 30.0    # Higher edge weight for better edge learning
-    
-    # 4. Multi-component learning rates for different loss components
+
+    # 3. Multi-component learning rates for different loss components
     vertex_lr_multiplier = 1.0
     edge_lr_multiplier = 1.0
+    existence_lr_multiplier = 1.0
     
     # Training loop
     model.train()
@@ -243,10 +240,17 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
                 edge_lr_multiplier *= 1.05
             elif edge_loss_ratio < 0.001:
                 edge_lr_multiplier *= 0.98
+                
+            # Existence loss adjustment
+            if existence_loss_ratio > 0.1:
+                existence_lr_multiplier *= 1.1
+            elif existence_loss_ratio < 0.001:
+                existence_lr_multiplier *= 0.95
             
             # Clamp multipliers with wider ranges for vertex precision
             vertex_lr_multiplier = max(0.1, min(5.0, vertex_lr_multiplier))  # Allow higher vertex LR
             edge_lr_multiplier = max(0.1, min(3.0, edge_lr_multiplier))
+            existence_lr_multiplier = max(0.1, min(4.0, existence_lr_multiplier))  # Balance between vertex and edge
             
             # REMOVED: vertex_weight_multiplier clamping - no longer using sparsity weights
         
