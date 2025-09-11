@@ -67,6 +67,7 @@ class PointCloudToWireframe(nn.Module):
         existence_probabilities = vertex_output['existence_probabilities']  # (batch_size, max_vertices)
         actual_vertex_counts = vertex_output['actual_vertex_counts']  # (batch_size,)
         
+        
         # Predict edges for all vertices
         batch_size = predicted_vertices.shape[0]
         edge_probs_list = []

@@ -37,8 +37,7 @@ def create_individual_visualizations(model, sample_obj, device, output_dir, samp
 
 def main():
     from demo_dataset.PCtoWFdataset import PCtoWFdataset
-    from train import evaluate_model
-    from evaluate import load_trained_model  # evaluate.py should expose this
+    from evaluate import load_trained_model, analyze_individual_predictions  # Use comprehensive evaluation
 
     # get model from evaluate.py (no re-training)
     model, dataset, device, train_dataset = load_trained_model()
@@ -48,15 +47,23 @@ def main():
     print("EVALUATING TRAINED MODEL")
     print("="*50)
     
-    # Get max vertices for evaluation
-    max_vertices = train_dataset.max_vertices
-    
     # Load and evaluate test dataset
     test_dataset = dataset.load_testing_dataset()
     test_dataset.load_all_data()
-    test_batch_data = test_dataset.get_batch_data(target_points=1024)
     
-    test_results = evaluate_model(model, test_batch_data, device, max_vertices)
+    # Evaluate each test sample individually using comprehensive metrics
+    test_results = []
+    for i, individual_sample in enumerate(test_dataset.samples):
+        sample_name = f"test_sample_{i+1}"
+        analysis = analyze_individual_predictions(model, individual_sample, device, sample_name)
+        test_results.append({
+            'sample_index': i,
+            'vertex_rmse': analysis['vertex_rmse'],
+            'edge_accuracy': analysis['edge_precision'],  # Use precision as accuracy proxy
+            'edge_precision': analysis['edge_precision'],
+            'edge_recall': analysis['edge_recall'],
+            'edge_f1_score': analysis['edge_f1_score']
+        })
     
     # Print results
     print("\nTest Results:")

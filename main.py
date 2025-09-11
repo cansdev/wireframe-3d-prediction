@@ -1,7 +1,7 @@
 import torch
 from demo_dataset.PCtoWFdataset import PCtoWFdataset
-from train import evaluate_model, train_overfit_model
-from test import compute_building3d_metrics
+from train import train_overfit_model
+from evaluate import analyze_individual_predictions
 import wandb
 
 def main():
@@ -55,60 +55,90 @@ def main():
     print("EVALUATING TRAINED MODEL")
     print("="*50)
     
-    # Get max vertices for evaluation
-    max_vertices = train_dataset.max_vertices
+    # Save the trained model first
+    torch.save(model.state_dict(), 'trained_model.pth')
     
-    # Load and evaluate test dataset
+    # Load and evaluate test dataset using comprehensive evaluation
     test_dataset = dataset.load_testing_dataset()
     test_dataset.load_all_data()
-    test_batch_data = test_dataset.get_batch_data(target_points=1024)
     
-    test_results = evaluate_model(model, test_batch_data, device, max_vertices)
+    # Evaluate each test sample individually using comprehensive metrics
+    test_results = []
+    for i, individual_sample in enumerate(test_dataset.samples):
+        sample_name = f"test_sample_{i+1}"
+        analysis = analyze_individual_predictions(model, individual_sample, device, sample_name)
+        test_results.append({
+            'sample_index': i,
+            'vertex_rmse': analysis['vertex_rmse'],
+            'edge_accuracy': analysis['edge_precision'],  # Use precision as accuracy proxy
+            'edge_precision': analysis['edge_precision'],
+            'edge_recall': analysis['edge_recall'],
+            'edge_f1_score': analysis['edge_f1_score'],
+            'building3d_metrics': {
+                'building3d_aco': analysis['building3d_aco'],
+                'building3d_cp': analysis['building3d_cp'],
+                'building3d_cr': analysis['building3d_cr'],
+                'building3d_c_f1': analysis['building3d_c_f1'],
+                'building3d_ep': analysis['building3d_ep'],
+                'building3d_er': analysis['building3d_er'],
+                'building3d_e_f1': analysis['building3d_e_f1']
+            }
+        })
     
-    # Compute Building3D metrics
-    building3d_metrics = compute_building3d_metrics(test_results)
+    # Calculate aggregate metrics
+    avg_vertex_rmse = sum(r['vertex_rmse'] for r in test_results) / len(test_results)
+    avg_edge_precision = sum(r['edge_precision'] for r in test_results) / len(test_results)
+    avg_edge_recall = sum(r['edge_recall'] for r in test_results) / len(test_results)
+    avg_edge_f1 = sum(r['edge_f1_score'] for r in test_results) / len(test_results)
     
-    # Log Building3D metrics to W&B
+    # Building3D metrics averages
+    avg_building3d_aco = sum(r['building3d_metrics']['building3d_aco'] for r in test_results) / len(test_results)
+    avg_building3d_cp = sum(r['building3d_metrics']['building3d_cp'] for r in test_results) / len(test_results)
+    avg_building3d_cr = sum(r['building3d_metrics']['building3d_cr'] for r in test_results) / len(test_results)
+    avg_building3d_c_f1 = sum(r['building3d_metrics']['building3d_c_f1'] for r in test_results) / len(test_results)
+    avg_building3d_ep = sum(r['building3d_metrics']['building3d_ep'] for r in test_results) / len(test_results)
+    avg_building3d_er = sum(r['building3d_metrics']['building3d_er'] for r in test_results) / len(test_results)
+    avg_building3d_e_f1 = sum(r['building3d_metrics']['building3d_e_f1'] for r in test_results) / len(test_results)
+    
+    # Print comprehensive results
+    print(f"\nComprehensive Test Results:")
+    print(f"Average Vertex RMSE: {avg_vertex_rmse:.6f}")
+    print(f"Average Edge Precision: {avg_edge_precision:.6f}")
+    print(f"Average Edge Recall: {avg_edge_recall:.6f}")
+    print(f"Average Edge F1-Score: {avg_edge_f1:.6f}")
+    print(f"\nBuilding3D Metrics:")
+    print(f"ACO (Average Corner Offset): {avg_building3d_aco:.6f}")
+    print(f"CP (Corner Precision): {avg_building3d_cp:.6f}")
+    print(f"CR (Corner Recall): {avg_building3d_cr:.6f}")
+    print(f"C-F1 (Corner F1): {avg_building3d_c_f1:.6f}")
+    print(f"EP (Edge Precision): {avg_building3d_ep:.6f}")
+    print(f"ER (Edge Recall): {avg_building3d_er:.6f}")
+    print(f"E-F1 (Edge F1): {avg_building3d_e_f1:.6f}")
+
+    # Log comprehensive metrics to W&B
     run.log({
-        "eval_building3d_aco": building3d_metrics['building3d_aco'],
-        "eval_building3d_cp": building3d_metrics['building3d_cp'],
-        "eval_building3d_cr": building3d_metrics['building3d_cr'],
-        "eval_building3d_c_f1": building3d_metrics['building3d_c_f1'],
-        "eval_building3d_ep": building3d_metrics['building3d_ep'],
-        "eval_building3d_er": building3d_metrics['building3d_er'],
-        "eval_building3d_e_f1": building3d_metrics['building3d_e_f1'],
-    })
-    
-    # Also log with simpler names for better visibility
-    run.log({
-        "Building3D_ACO": building3d_metrics['building3d_aco'],
-        "Building3D_CP": building3d_metrics['building3d_cp'],
-        "Building3D_CR": building3d_metrics['building3d_cr'],
-        "Building3D_C_F1": building3d_metrics['building3d_c_f1'],
-        "Building3D_EP": building3d_metrics['building3d_ep'],
-        "Building3D_ER": building3d_metrics['building3d_er'],
-        "Building3D_E_F1": building3d_metrics['building3d_e_f1'],
+        "eval_avg_vertex_rmse": avg_vertex_rmse,
+        "eval_avg_edge_precision": avg_edge_precision,
+        "eval_avg_edge_recall": avg_edge_recall,
+        "eval_avg_edge_f1": avg_edge_f1,
+        "eval_building3d_aco": avg_building3d_aco,
+        "eval_building3d_cp": avg_building3d_cp,
+        "eval_building3d_cr": avg_building3d_cr,
+        "eval_building3d_c_f1": avg_building3d_c_f1,
+        "eval_building3d_ep": avg_building3d_ep,
+        "eval_building3d_er": avg_building3d_er,
+        "eval_building3d_e_f1": avg_building3d_e_f1,
     })
     
     # Log a summary metric for easy comparison
     run.log({
-        "Building3D_Overall_Score": (building3d_metrics['building3d_c_f1'] + building3d_metrics['building3d_e_f1']) / 2
+        "Building3D_Overall_Score": (avg_building3d_c_f1 + avg_building3d_e_f1) / 2
     })
     
     # Print results
+    
     print("\nTest Results:")
     print("-" * 40)
-    print("Building3D Benchmark Metrics:")
-    print(f"  ACO: {building3d_metrics['building3d_aco']:.6f}")
-    print(f"  CP: {building3d_metrics['building3d_cp']:.6f}")
-    print(f"  CR: {building3d_metrics['building3d_cr']:.6f}")
-    print(f"  C-F1: {building3d_metrics['building3d_c_f1']:.6f}")
-    print(f"  EP: {building3d_metrics['building3d_ep']:.6f}")
-    print(f"  ER: {building3d_metrics['building3d_er']:.6f}")
-    print(f"  E-F1: {building3d_metrics['building3d_e_f1']:.6f}")
-    print()
-    
-    print("Custom Metrics:")
     for result in test_results:
         print(f"Sample {result['sample_index']+1}:")
         print(f"  Vertex RMSE: {result['vertex_rmse']:.6f}")
@@ -118,24 +148,7 @@ def main():
         print(f"  Edge F1-Score: {result['edge_f1_score']:.6f}")
         print()
     
-    # Save model
-    torch.save(model.state_dict(), 'trained_model.pth')
     print("\nModel saved as 'trained_model.pth'")
-    
-    # Log summary report as W&B artifact
-    import os
-    report_path = 'output/summary_report.txt'
-    if os.path.exists(report_path):
-        artifact = wandb.Artifact(
-            name="evaluation_summary_report",
-            type="evaluation_report",
-            description="Comprehensive evaluation results with Building3D and custom metrics"
-        )
-        artifact.add_file(report_path)
-        run.log_artifact(artifact)
-        print(f"✓ Summary report logged to W&B as artifact: {artifact.name}")
-    else:
-        print("⚠ Warning: summary_report.txt not found, skipping W&B artifact logging")
     
     # Save W&B run ID for later use by evaluate.py
     run_id = run.id
@@ -147,6 +160,7 @@ def main():
     run.finish()
     
     print("\nOvertraining completed successfully!")
+
 
 if __name__ == "__main__":
     main()
