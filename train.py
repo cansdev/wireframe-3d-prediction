@@ -5,13 +5,12 @@ from scipy.spatial.distance import cdist # distance matrix
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingWarmRestarts, ReduceLROnPlateau
 import logging
 from models.PointCloudToWireframe import PointCloudToWireframe
 from models.LearningScheduler import (
-    AdaptiveLearningScheduler, TrainingState, log_training_progress, 
+    TrainingState, log_training_progress, 
     create_wandb_log_dict, hungarian_rmse, create_adjacency_matrix_from_predictions,
-    create_edge_labels_from_edge_set
+    create_edge_labels_from_edge_set, adaptive_lr_step
 )
 from losses.WireframeLoss import WireframeLoss
 import wandb
@@ -86,8 +85,7 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     ) 
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
-    # Initialize learning scheduler and training state
-    learning_scheduler = AdaptiveLearningScheduler(optimizer, num_epochs, learning_rate)
+    # Initialize training state
     training_state = TrainingState()
     
     # Training loop
@@ -136,6 +134,10 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
         
         # Save best model state for monitoring
         training_state.update_best_state(model, total_loss)
+        
+        # Apply adaptive learning rate (every 50 epochs to avoid too frequent changes)
+        if epoch > 0 and epoch % 50 == 0:
+            adaptive_lr_step(optimizer, training_state.loss_history, patience=150, factor=0.85)
 
         # Log progress with detailed metrics every 20 epochs
         if epoch % 20 == 0 or epoch == num_epochs - 1:
@@ -167,6 +169,3 @@ def train_overfit_model(batch_data, num_epochs=5000, learning_rate=0.001, wandb_
     logger.info(f"Training completed! Best loss: {training_state.best_loss:.6f}")
     
     return model, training_state.loss_history
-
-
-

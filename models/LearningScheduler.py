@@ -55,13 +55,44 @@ def hungarian_rmse(pred_vertices, true_vertices):
     return np.sqrt(np.mean((matched_pred - matched_true) ** 2))
 
 
-class AdaptiveLearningScheduler:
-    """Adaptive learning rate scheduler for wireframe training"""
+def adaptive_lr_step(optimizer, loss_history, patience=100, factor=0.8, min_lr=1e-5):
+    """
+    Simple but super effective adaptive learning rate scheduler.
+    Reduces LR by factor when loss doesn't improve for patience epochs.
     
-    def __init__(self, optimizer, num_epochs, learning_rate):
-        self.optimizer = optimizer
-        self.num_epochs = num_epochs
-        self.learning_rate = learning_rate
+    Args:
+        optimizer: PyTorch optimizer
+        loss_history: List of loss values
+        patience: How many epochs to wait before reducing LR (increased to 100)
+        factor: Factor to multiply LR by (0.8 = reduce by 20% instead of 50%)
+        min_lr: Minimum learning rate threshold (increased to 1e-5)
+        
+    Returns:
+        bool: True if LR was reduced, False otherwise
+    """
+    if len(loss_history) < patience + 1:
+        return False
+    
+    # Check if loss hasn't improved in the last 'patience' epochs
+    recent_losses = loss_history[-patience:]
+    best_recent_loss = min(recent_losses)
+    current_loss = loss_history[-1]
+    
+    # Only reduce if current loss is significantly worse (add small tolerance)
+    improvement_threshold = 0.01  # Loss must improve by at least 1%
+    if current_loss >= best_recent_loss * (1 + improvement_threshold):
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # Only reduce if above minimum
+        if current_lr > min_lr:
+            new_lr = max(current_lr * factor, min_lr)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = new_lr
+            
+            logger.info(f"Adaptive LR: Reduced from {current_lr:.8f} to {new_lr:.8f}")
+            return True
+    
+    return False
 
 
 class TrainingState:
