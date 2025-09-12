@@ -37,31 +37,58 @@ def create_individual_visualizations(model, sample_obj, device, output_dir, samp
 
 def main():
     from demo_dataset.PCtoWFdataset import PCtoWFdataset
-    from train import evaluate_model
-    from evaluate import load_trained_model  # evaluate.py should expose this
+    from evaluate import load_trained_model, analyze_individual_predictions  # Use comprehensive evaluation
 
     # get model from evaluate.py (no re-training)
     model, dataset, device, train_dataset = load_trained_model()
     model.eval()
 
     print("\n" + "="*50)
-    print("EVALUATING TRAINED MODEL")
+    print("DATASET VISUALIZATION")
     print("="*50)
     
-    # Get max vertices for evaluation
-    max_vertices = train_dataset.max_vertices
+    # Ask user which dataset to visualize
+    print("Which dataset would you like to visualize?")
+    print("1. Train dataset")
+    print("2. Test dataset")
+    dataset_choice = input("Enter your choice (1 or 2): ").strip()
     
-    # Load and evaluate test dataset
-    test_dataset = dataset.load_testing_dataset()
-    test_dataset.load_all_data()
-    test_batch_data = test_dataset.get_batch_data(target_points=1024)
+    if dataset_choice == "1":
+        # Use train dataset
+        selected_dataset = train_dataset
+        dataset_name = "train"
+        sample_prefix = "train_sample"
+        print("\nUsing TRAIN dataset for visualization")
+    else:
+        # Default to test dataset
+        selected_dataset = dataset.load_testing_dataset()
+        selected_dataset.load_all_data()
+        dataset_name = "test"
+        sample_prefix = "test_sample"
+        print("\nUsing TEST dataset for visualization")
     
-    test_results = evaluate_model(model, test_batch_data, device, max_vertices)
+    print("\n" + "="*50)
+    print(f"EVALUATING TRAINED MODEL ON {dataset_name.upper()} DATASET")
+    print("="*50)
+    
+    # Evaluate each sample individually using comprehensive metrics
+    results = []
+    for i, individual_sample in enumerate(selected_dataset.samples):
+        sample_name = f"{sample_prefix}_{i+1}"
+        analysis = analyze_individual_predictions(model, individual_sample, device, sample_name)
+        results.append({
+            'sample_index': i,
+            'vertex_rmse': analysis['vertex_rmse'],
+            'edge_accuracy': analysis['edge_precision'],  # Use precision as accuracy proxy
+            'edge_precision': analysis['edge_precision'],
+            'edge_recall': analysis['edge_recall'],
+            'edge_f1_score': analysis['edge_f1_score']
+        })
     
     # Print results
-    print("\nTest Results:")
+    print(f"\n{dataset_name.title()} Dataset Results:")
     print("-" * 40)
-    for result in test_results:
+    for result in results:
         print(f"Sample {result['sample_index']+1}:")
         print(f"  Vertex RMSE: {result['vertex_rmse']:.6f}")
         print(f"  Edge Accuracy: {result['edge_accuracy']:.6f}")
@@ -70,17 +97,17 @@ def main():
     output_dir = 'output'
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"\nAvailable test samples: {len(test_dataset.samples)}")
+    print(f"\nAvailable {dataset_name} samples: {len(selected_dataset.samples)}")
     print("Enter sample indices to visualize (e.g., '1,3,5' or 'all' for all samples):")
     user_input = input("Sample indices: ").strip()
     
     if user_input.lower() == 'all':
-        sample_indices = list(range(len(test_dataset.samples)))
+        sample_indices = list(range(len(selected_dataset.samples)))
     else:
         try:
             sample_indices = [int(x.strip()) - 1 for x in user_input.split(',') if x.strip()]
             # Validate indices
-            sample_indices = [i for i in sample_indices if 0 <= i < len(test_dataset.samples)]
+            sample_indices = [i for i in sample_indices if 0 <= i < len(selected_dataset.samples)]
         except ValueError:
             print("Invalid input. Using first sample only.")
             sample_indices = [0]
@@ -89,10 +116,10 @@ def main():
         print("No valid samples selected. Using first sample.")
         sample_indices = [0]
     
-    print(f"Visualizing {len(sample_indices)} sample(s)...")
+    print(f"Visualizing {len(sample_indices)} sample(s) from {dataset_name} dataset...")
     for i in sample_indices:
-        sample = test_dataset.samples[i]
-        create_individual_visualizations(model, sample, device, output_dir, f'test_sample_{i+1}')
+        sample = selected_dataset.samples[i]
+        create_individual_visualizations(model, sample, device, output_dir, f'{sample_prefix}_{i+1}')
 
 if __name__ == "__main__":
     main()
