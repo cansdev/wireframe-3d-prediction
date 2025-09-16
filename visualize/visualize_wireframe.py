@@ -6,8 +6,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import torch
-from demo_dataset.PointCloudWireframeDataset import PointCloudWireframeDataset
+import yaml
+from easydict import EasyDict
+from torch.utils.data import DataLoader
+from eval.ap_calculator import APCalculator
+from datasets import building3d, build_dataset
 from models.PointCloudToWireframe import PointCloudToWireframe
+
+
+def cfg_from_yaml_file(cfg_file):
+    with open(cfg_file, 'r') as f:
+        try:
+            new_config = yaml.load(f, Loader=yaml.FullLoader)
+        except:
+            new_config = yaml.load(f)
+    cfg = EasyDict(new_config)
+    return cfg
 
 def visualize_point_cloud(point_cloud, title="Point Cloud", max_points=1000):
     """Visualize point cloud data"""
@@ -60,56 +74,64 @@ def visualize_wireframe(vertices, edges, title="Wireframe", color='blue'):
     
     return fig, ax
 
-def visualize_prediction_comparison(dataset, model, device):
-    """Compare predicted vs actual wireframes"""
+def visualize_prediction_comparison(sample_data, model, device):
+    """Compare predicted vs actual wireframes using APCalculator blueprint"""
     model.eval()
     
     with torch.no_grad():
-        # Get predictions
-        point_cloud_tensor = torch.FloatTensor(dataset.normalized_point_cloud).unsqueeze(0).to(device)
-        predictions = model(point_cloud_tensor)
+        # Get predictions using new dataset format
+        point_cloud_tensor = torch.FloatTensor(sample_data['point_clouds']).unsqueeze(0).to(device)
+        vertex_count = torch.tensor([len(sample_data['wf_vertices'])], dtype=torch.long).to(device)
+        predictions = model(point_cloud_tensor, vertex_count)
         
         # Extract predictions
         pred_vertices = predictions['vertices'].cpu().numpy()[0]
-        pred_existence_probs = predictions['existence_probabilities'].cpu().numpy()[0]
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices'][0] # per-sample edge indices
-
-        existence_threshold = 0.5
-        valid_vertex_mask = pred_existence_probs > existence_threshold
-        pred_vertices_filtered = pred_vertices[valid_vertex_mask]
+        edge_indices = predictions['edge_indices'][0]
         
-        # Convert back to original scale
-        pred_vertices_original = dataset.spatial_scaler.inverse_transform(pred_vertices_filtered)
+        # Filter edges by probability threshold (APCalculator blueprint)
+        mask = pred_edge_probs > 0.5
+        pd_edges = np.array(edge_indices)[mask]
         
-        # mapping original indices -> filtered indices
-        original_to_filtered = {}
-        filtered_idx = 0
-        for original_idx in range(len(valid_vertex_mask)):
-            if valid_vertex_mask[original_idx]:
-                original_to_filtered[original_idx] = filtered_idx
-                filtered_idx += 1
-
-        # Create predicted edges (threshold at 0.5, only between valid vertices)
-        pred_edges = []
-        for idx, (i, j) in enumerate(edge_indices):
-            # Only consider edges between valid vertices and with high edge probability
-            if (pred_edge_probs[idx] > 0.5 and 
-                i in original_to_filtered and 
-                j in original_to_filtered):
-                # Map to filtered vertex indices
-                filtered_i = original_to_filtered[i]
-                filtered_j = original_to_filtered[j]
-                pred_edges.append([filtered_i, filtered_j])
-        pred_edges = np.array(pred_edges) if pred_edges else np.array([]).reshape(0, 2)
+        # Get ground truth
+        gt_vertices = sample_data['wf_vertices']
+        gt_edges = sample_data['wf_edges'].astype(np.int64)
+        
+        # Build batch exactly as APCalculator blueprint
+        if len(pd_edges) > 0:
+            pd_edges_vertices = np.stack((pred_vertices[pd_edges[:, 0]], pred_vertices[pd_edges[:, 1]]), axis=1)
+            pd_edges_vertices = pd_edges_vertices[np.arange(pd_edges_vertices.shape[0])[:, np.newaxis], np.flip(np.argsort(pd_edges_vertices[:, :, -1]), axis=1)]
+        else:
+            pd_edges_vertices = np.empty((0, 2, 3))
+        
+        if len(gt_edges) > 0:
+            gt_edges_vertices = np.stack((gt_vertices[gt_edges[:, 0]], gt_vertices[gt_edges[:, 1]]), axis=1)
+            gt_edges_vertices = gt_edges_vertices[np.arange(gt_edges_vertices.shape[0])[:, np.newaxis], np.flip(np.argsort(gt_edges_vertices[:, :, -1]), axis=1)]
+        else:
+            gt_edges_vertices = np.empty((0, 2, 3))
+        
+        # Use APCalculator for evaluation
+        ap_calculator = APCalculator(distance_thresh=1)
+        
+        batch = dict()
+        batch['predicted_vertices'] = pred_vertices[np.newaxis, :]
+        batch['predicted_edges'] = pd_edges[np.newaxis, :]
+        batch['pred_edges_vertices'] = pd_edges_vertices.reshape((1, -1, 2, 3))
+        
+        batch['wf_vertices'] = gt_vertices[np.newaxis, :]
+        batch['wf_edges'] = gt_edges[np.newaxis, :]
+        batch['wf_edges_vertices'] = gt_edges_vertices.reshape((1, -1, 2, 3))
+        
+        ap_calculator.compute_metrics(batch)
+        ap_calculator.output_accuracy()
     
     # Create comparison visualization
     fig = plt.figure(figsize=(20, 8))
     
     # Original wireframe
     ax1 = fig.add_subplot(131, projection='3d')
-    vertices = dataset.vertices
-    edges = dataset.edges
+    vertices = gt_vertices
+    edges = gt_edges
     
     ax1.scatter(vertices[:, 0], vertices[:, 1], vertices[:, 2], 
                c='red', s=50, alpha=0.8, label='Vertices')
@@ -130,14 +152,14 @@ def visualize_prediction_comparison(dataset, model, device):
     # Predicted wireframe
     ax2 = fig.add_subplot(132, projection='3d')
     
-    ax2.scatter(pred_vertices_original[:, 0], pred_vertices_original[:, 1], pred_vertices_original[:, 2], 
+    ax2.scatter(pred_vertices[:, 0], pred_vertices[:, 1], pred_vertices[:, 2], 
                c='red', s=50, alpha=0.8, label='Vertices')
     
-    for edge in pred_edges:
+    for edge in pd_edges:
         v1, v2 = edge[0], edge[1]
-        x_vals = [pred_vertices_original[v1, 0], pred_vertices_original[v2, 0]]
-        y_vals = [pred_vertices_original[v1, 1], pred_vertices_original[v2, 1]]
-        z_vals = [pred_vertices_original[v1, 2], pred_vertices_original[v2, 2]]
+        x_vals = [pred_vertices[v1, 0], pred_vertices[v2, 0]]
+        y_vals = [pred_vertices[v1, 1], pred_vertices[v2, 1]]
+        z_vals = [pred_vertices[v1, 2], pred_vertices[v2, 2]]
         ax2.plot(x_vals, y_vals, z_vals, color='green', linewidth=2, alpha=0.7)
     
     ax2.set_title('Predicted Wireframe')
@@ -152,7 +174,7 @@ def visualize_prediction_comparison(dataset, model, device):
     # Plot both sets of vertices
     ax3.scatter(vertices[:, 0], vertices[:, 1], vertices[:, 2], 
                c='red', s=50, alpha=0.8, label='True Vertices')
-    ax3.scatter(pred_vertices_original[:, 0], pred_vertices_original[:, 1], pred_vertices_original[:, 2], 
+    ax3.scatter(pred_vertices[:, 0], pred_vertices[:, 1], pred_vertices[:, 2], 
                c='orange', s=30, alpha=0.6, label='Pred Vertices')
     
     # Plot true edges in blue
@@ -164,11 +186,11 @@ def visualize_prediction_comparison(dataset, model, device):
         ax3.plot(x_vals, y_vals, z_vals, color='blue', linewidth=3, alpha=0.7, label='True Edges' if edge is edges[0] else "")
     
     # Plot predicted edges in green
-    for i, edge in enumerate(pred_edges):
+    for i, edge in enumerate(pd_edges):
         v1, v2 = edge[0], edge[1]
-        x_vals = [pred_vertices_original[v1, 0], pred_vertices_original[v2, 0]]
-        y_vals = [pred_vertices_original[v1, 1], pred_vertices_original[v2, 1]]
-        z_vals = [pred_vertices_original[v1, 2], pred_vertices_original[v2, 2]]
+        x_vals = [pred_vertices[v1, 0], pred_vertices[v2, 0]]
+        y_vals = [pred_vertices[v1, 1], pred_vertices[v2, 1]]
+        z_vals = [pred_vertices[v1, 2], pred_vertices[v2, 2]]
         ax3.plot(x_vals, y_vals, z_vals, color='green', linewidth=2, alpha=0.7, 
                 linestyle='--', label='Pred Edges' if i == 0 else "")
     
@@ -231,20 +253,21 @@ def visualize_edge_probabilities(edge_probs, edge_indices, threshold=0.5):
     return fig
 
 if __name__ == "__main__":
-    # Load dataset
-    dataset = load_and_preprocess_data()
+    # Load dataset using blueprint
+    dataset_config = cfg_from_yaml_file('datasets/dataset_config.yaml')
+    building3D_dataset = build_dataset(dataset_config.Building3D)
+    
+    # Get a sample for visualization
+    sample = building3D_dataset['train'][0]
     
     # Visualize point cloud
-    print("Creating point cloud visualization...")
-    fig1 = visualize_point_cloud(dataset.point_cloud, "Original Point Cloud")
+    fig1 = visualize_point_cloud(sample['point_clouds'], "Original Point Cloud")
     plt.savefig('point_cloud_visualization.png', dpi=150, bbox_inches='tight')
     plt.show()
     
     # Visualize original wireframe
-    print("Creating wireframe visualization...")
-    fig2 = visualize_wireframe(dataset.vertices, dataset.edges, "Original Wireframe")
+    fig2 = visualize_wireframe(sample['wf_vertices'], sample['wf_edges'], "Original Wireframe")
     plt.savefig('wireframe_visualization.png', dpi=150, bbox_inches='tight')
     plt.show()
     
-    print("Visualizations saved!")
-    print("To use prediction comparison, first train the model using main.py") 
+    

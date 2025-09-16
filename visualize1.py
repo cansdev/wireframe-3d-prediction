@@ -1,19 +1,56 @@
 import os 
-from visualize.visualize_wireframe import visualize_prediction_comparison, visualize_edge_probabilities
-import torch
-import matplotlib.pyplot as plt
-import numpy as np
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-def create_individual_visualizations(model, sample_obj, device, output_dir, sample_name):
+import torch
+import numpy as np
+import yaml
+from easydict import EasyDict
+from torch.utils.data import DataLoader
+from eval.ap_calculator import APCalculator
+from datasets import building3d, build_dataset
+from models.PointCloudToWireframe import PointCloudToWireframe
+from visualize.visualize_wireframe import visualize_prediction_comparison, visualize_edge_probabilities
+import matplotlib.pyplot as plt
+
+
+def cfg_from_yaml_file(cfg_file):
+    with open(cfg_file, 'r') as f:
+        try:
+            new_config = yaml.load(f, Loader=yaml.FullLoader)
+        except:
+            new_config = yaml.load(f)
+    cfg = EasyDict(new_config)
+    return cfg
+
+
+def load_trained_model_for_visualization():
+    dataset_config = cfg_from_yaml_file('datasets/dataset_config.yaml')
+    building3D_dataset = build_dataset(dataset_config.Building3D)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    sample = building3D_dataset['train'][0]
+    input_dim = sample['point_clouds'].shape[1]
+    max_vertices = len(sample['wf_vertices'])
+    
+    model = PointCloudToWireframe(input_dim=input_dim, max_vertices=max_vertices).to(device)
+    if os.path.exists('trained_model.pth'):
+        model.load_state_dict(torch.load('trained_model.pth', map_location=device), strict=False)
+        model.eval()
+    else:
+        raise FileNotFoundError('trained_model.pth not found')
+    return model, building3D_dataset, device
+
+
+def create_individual_visualizations(model, sample_data, device, output_dir, sample_name):
     """Create comprehensive visualizations for a single sample"""
-    print(f"Creating visualizations for {sample_name}...")
     
     # Create sample-specific output directory
     sample_output_dir = os.path.join(output_dir, sample_name)
     os.makedirs(sample_output_dir, exist_ok=True)
     
     # Create prediction comparison
-    fig1 = visualize_prediction_comparison(sample_obj, model, device)
+    fig1 = visualize_prediction_comparison(sample_data, model, device)
     fig1.savefig(os.path.join(sample_output_dir, f'{sample_name}_prediction_comparison.png'), 
                  dpi=150, bbox_inches='tight')
     plt.close(fig1)
@@ -21,105 +58,115 @@ def create_individual_visualizations(model, sample_obj, device, output_dir, samp
     # Get predictions for edge probability visualization
     model.eval()
     with torch.no_grad():
-        point_cloud_tensor = torch.FloatTensor(sample_obj.normalized_point_cloud).unsqueeze(0).to(device)
-        predictions = model(point_cloud_tensor)
+        point_cloud_tensor = torch.FloatTensor(sample_data['point_clouds']).unsqueeze(0).to(device)
+        vertex_count = torch.tensor([len(sample_data['wf_vertices'])], dtype=torch.long).to(device)
+        predictions = model(point_cloud_tensor, vertex_count)
         pred_edge_probs = predictions['edge_probs'].cpu().numpy()[0]
-        edge_indices = predictions['edge_indices']
+        edge_indices = predictions['edge_indices'][0]
     
     # Create edge probability visualization
     fig2 = visualize_edge_probabilities(pred_edge_probs, edge_indices)
     fig2.savefig(os.path.join(sample_output_dir, f'{sample_name}_edge_probabilities.png'), 
                  dpi=150, bbox_inches='tight')
     plt.close(fig2)
+
+
+def evaluate_with_ap_calculator(model, selected_dataset, device):
+    """Use APCalculator blueprint for evaluation"""
+    ap_calculator = APCalculator(distance_thresh=1)
     
-    print(f"✓ Saved visualizations for {sample_name} in {sample_output_dir}")
+    with torch.no_grad():
+        for i in range(len(selected_dataset)):
+            sample_data = selected_dataset[i]
+            
+            # Model prediction
+            point_cloud_tensor = torch.FloatTensor(sample_data['point_clouds']).unsqueeze(0).to(device)
+            vertex_count = torch.tensor([len(sample_data['wf_vertices'])], dtype=torch.long).to(device)
+            predictions = model(point_cloud_tensor, vertex_count)
+            
+            pred_vertices = predictions['vertices'].cpu().numpy()[0]
+            edge_indices = predictions['edge_indices'][0]
+            edge_probs = predictions['edge_probs'].cpu().numpy()[0]
+            
+            # Filter edges by probability threshold
+            mask = edge_probs > 0.5
+            pd_edges = np.array(edge_indices)[mask]
+            
+            # Get ground truth
+            gt_vertices = sample_data['wf_vertices']
+            gt_edges = sample_data['wf_edges'].astype(np.int64)
+            
+            # Build batch exactly as blueprint
+            if len(pd_edges) > 0:
+                pd_edges_vertices = np.stack((pred_vertices[pd_edges[:, 0]], pred_vertices[pd_edges[:, 1]]), axis=1)
+                pd_edges_vertices = pd_edges_vertices[np.arange(pd_edges_vertices.shape[0])[:, np.newaxis], np.flip(np.argsort(pd_edges_vertices[:, :, -1]), axis=1)]
+            else:
+                pd_edges_vertices = np.empty((0, 2, 3))
+            
+            if len(gt_edges) > 0:
+                gt_edges_vertices = np.stack((gt_vertices[gt_edges[:, 0]], gt_vertices[gt_edges[:, 1]]), axis=1)
+                gt_edges_vertices = gt_edges_vertices[np.arange(gt_edges_vertices.shape[0])[:, np.newaxis], np.flip(np.argsort(gt_edges_vertices[:, :, -1]), axis=1)]
+            else:
+                gt_edges_vertices = np.empty((0, 2, 3))
+            
+            batch = dict()
+            batch['predicted_vertices'] = pred_vertices[np.newaxis, :]
+            batch['predicted_edges'] = pd_edges[np.newaxis, :]
+            batch['pred_edges_vertices'] = pd_edges_vertices.reshape((1, -1, 2, 3))
+            
+            batch['wf_vertices'] = gt_vertices[np.newaxis, :]
+            batch['wf_edges'] = gt_edges[np.newaxis, :]
+            batch['wf_edges_vertices'] = gt_edges_vertices.reshape((1, -1, 2, 3))
+            
+            ap_calculator.compute_metrics(batch)
+    
+    ap_calculator.output_accuracy()
 
 
 def main():
-    from demo_dataset.PCtoWFdataset import PCtoWFdataset
-    from evaluate import load_trained_model, analyze_individual_predictions  # Use comprehensive evaluation
-
-    # get model from evaluate.py (no re-training)
-    model, dataset, device, train_dataset = load_trained_model()
-    model.eval()
-
-    print("\n" + "="*50)
-    print("DATASET VISUALIZATION")
-    print("="*50)
+    model, building3D_dataset, device = load_trained_model_for_visualization()
     
     # Ask user which dataset to visualize
-    print("Which dataset would you like to visualize?")
-    print("1. Train dataset")
-    print("2. Test dataset")
     dataset_choice = input("Enter your choice (1 or 2): ").strip()
     
     if dataset_choice == "1":
         # Use train dataset
-        selected_dataset = train_dataset
+        selected_dataset = building3D_dataset['train']
         dataset_name = "train"
         sample_prefix = "train_sample"
-        print("\nUsing TRAIN dataset for visualization")
+        
     else:
         # Default to test dataset
-        selected_dataset = dataset.load_testing_dataset()
-        selected_dataset.load_all_data()
+        selected_dataset = building3D_dataset['test']
         dataset_name = "test"
         sample_prefix = "test_sample"
-        print("\nUsing TEST dataset for visualization")
     
-    print("\n" + "="*50)
-    print(f"EVALUATING TRAINED MODEL ON {dataset_name.upper()} DATASET")
-    print("="*50)
-    
-    # Evaluate each sample individually using comprehensive metrics
-    results = []
-    for i, individual_sample in enumerate(selected_dataset.samples):
-        sample_name = f"{sample_prefix}_{i+1}"
-        analysis = analyze_individual_predictions(model, individual_sample, device, sample_name)
-        results.append({
-            'sample_index': i,
-            'vertex_rmse': analysis['vertex_rmse'],
-            'edge_accuracy': analysis['edge_precision'],  # Use precision as accuracy proxy
-            'edge_precision': analysis['edge_precision'],
-            'edge_recall': analysis['edge_recall'],
-            'edge_f1_score': analysis['edge_f1_score']
-        })
-    
-    # Print results
-    print(f"\n{dataset_name.title()} Dataset Results:")
-    print("-" * 40)
-    for result in results:
-        print(f"Sample {result['sample_index']+1}:")
-        print(f"  Vertex RMSE: {result['vertex_rmse']:.6f}")
-        print(f"  Edge Accuracy: {result['edge_accuracy']:.6f}")
+    # Evaluate using APCalculator blueprint
+    print(f"Evaluating {dataset_name} dataset with APCalculator...")
+    evaluate_with_ap_calculator(model, selected_dataset, device)
     
     # Create visualizations for user-selected samples
     output_dir = 'output'
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"\nAvailable {dataset_name} samples: {len(selected_dataset.samples)}")
-    print("Enter sample indices to visualize (e.g., '1,3,5' or 'all' for all samples):")
     user_input = input("Sample indices: ").strip()
     
     if user_input.lower() == 'all':
-        sample_indices = list(range(len(selected_dataset.samples)))
+        sample_indices = list(range(len(selected_dataset)))
     else:
         try:
             sample_indices = [int(x.strip()) - 1 for x in user_input.split(',') if x.strip()]
             # Validate indices
-            sample_indices = [i for i in sample_indices if 0 <= i < len(selected_dataset.samples)]
+            sample_indices = [i for i in sample_indices if 0 <= i < len(selected_dataset)]
         except ValueError:
-            print("Invalid input. Using first sample only.")
             sample_indices = [0]
     
-    if not sample_indices:
-        print("No valid samples selected. Using first sample.")
+    if not sample_indices:    
         sample_indices = [0]
     
-    print(f"Visualizing {len(sample_indices)} sample(s) from {dataset_name} dataset...")
     for i in sample_indices:
-        sample = selected_dataset.samples[i]
-        create_individual_visualizations(model, sample, device, output_dir, f'{sample_prefix}_{i+1}')
+        sample_data = selected_dataset[i]
+        create_individual_visualizations(model, sample_data, device, output_dir, f'{sample_prefix}_{i+1}')
 
 if __name__ == "__main__":
     main()

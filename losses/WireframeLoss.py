@@ -31,12 +31,12 @@ class WireframeLoss(nn.Module):
         self.existence_weight = existence_weight
         
         # Initialize loss functions for different components
-        self.mse_loss = nn.MSELoss()        # For vertex position regression
-        self.bce_loss = nn.BCELoss()        # For edge existence classification
+        self.smooth_l1_loss = nn.SmoothL1Loss()  # For vertex position regression (better than MSE)
+        self.bce_loss = nn.BCELoss()             # For edge existence classification
         
-    def forward(self, predictions, targets):
+    def forward(self, predictions, targets, matched_indices):
         """
-        Compute the combined wireframe loss
+        Compute the combined wireframe loss with Hungarian matching
         
         Args:
             predictions (dict): Model predictions containing:
@@ -50,28 +50,21 @@ class WireframeLoss(nn.Module):
                 - edge_labels: Target edge existence labels (batch_size, num_edges)
                 - vertex_counts: Target vertex counts (batch_size,)
                 
+            matched_indices (list): Hungarian matching indices for each batch element
+                Each element is a tuple (pred_indices, target_indices) of matched pairs
+                
         Returns:
             dict: Dictionary containing individual and total losses
         """
         batch_size = predictions['vertices'].shape[0]
         
-        # COMPONENT 1: Vertex Position Loss (MSE on active vertices only)
+        # COMPONENT 1: Vertex Position Loss (Smooth L1 on Hungarian matched vertices)
         pred_vertices = predictions['vertices']      # (batch_size, max_vertices, 3)
         target_vertices = targets['vertices']        # (batch_size, max_vertices, 3)
-        
-        # Use target vertex existence for masking
         target_existence = targets['vertex_existence']  # (batch_size, max_vertices) - binary labels
         
-        # Calculate vertex loss only for existing vertices using mask
-        # Create mask for existing vertices
-        mask = target_existence.unsqueeze(-1)  # (batch_size, max_vertices, 1)
-        
-        # Apply mask to both predictions and targets
-        masked_pred_vertices = pred_vertices * mask
-        masked_target_vertices = target_vertices * mask
-        
-        # Calculate MSE loss only on existing vertices
-        vertex_loss = self.mse_loss(masked_pred_vertices, masked_target_vertices)
+        # Use Hungarian matching for vertex loss computation
+        vertex_loss = self._compute_matched_vertex_loss(pred_vertices, target_vertices, matched_indices)
         
         # COMPONENT 2: Vertex Existence Loss (BCE on existence probabilities)
         pred_existence = predictions['existence_probabilities']  # (batch_size, max_vertices)
@@ -103,7 +96,44 @@ class WireframeLoss(nn.Module):
         # Return detailed loss breakdown for monitoring and debugging
         return {
             'total_loss': total_loss,          # Combined weighted loss
-            'vertex_loss': vertex_loss,        # MSE loss for vertex positions
+            'vertex_loss': vertex_loss,        # Smooth L1 loss for vertex positions
             'existence_loss': existence_loss,  # BCE loss for vertex existence
             'edge_loss': edge_loss,            # BCE loss for edge connectivity
         }
+    
+    def _compute_matched_vertex_loss(self, pred_vertices, target_vertices, matched_indices):
+        """
+        Compute vertex loss using Hungarian matched pairs.
+        
+        Args:
+            pred_vertices: Predicted vertices (batch_size, max_vertices, 3)
+            target_vertices: Target vertices (batch_size, max_vertices, 3)
+            matched_indices: List of (pred_indices, target_indices) tuples for each batch element
+            
+        Returns:
+            torch.Tensor: Smooth L1 loss on matched vertex pairs
+        """
+        batch_size = pred_vertices.shape[0]
+        device = pred_vertices.device
+        
+        total_loss = 0.0
+        total_matches = 0
+        
+        for batch_idx in range(batch_size):
+            pred_idx, target_idx = matched_indices[batch_idx]
+            
+            if len(pred_idx) > 0:
+                # Get matched predictions and targets
+                matched_pred = pred_vertices[batch_idx, pred_idx]  # (num_matches, 3)
+                matched_target = target_vertices[batch_idx, target_idx]  # (num_matches, 3)
+                
+                # Compute Smooth L1 loss for this batch element
+                batch_loss = self.smooth_l1_loss(matched_pred, matched_target)
+                total_loss += batch_loss * len(pred_idx)  # Weight by number of matches
+                total_matches += len(pred_idx)
+        
+        # Average over total number of matches across all batches
+        if total_matches > 0:
+            return total_loss / total_matches
+        else:
+            return torch.tensor(0.0, device=device)
