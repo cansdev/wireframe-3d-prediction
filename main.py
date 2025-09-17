@@ -1,7 +1,7 @@
 import torch
 import yaml
-from easydict import EasyDict
-from torch.utils.data import DataLoader
+from easydict import EasyDict 
+from torch.utils.data import DataLoader 
 from datasets import build_dataset
 from train import train_model
 import wandb
@@ -27,7 +27,7 @@ def main():
             "learning_rate": 0.001,
             "architecture": "PointCloudToWireframe",
             "dataset": "Building3D",
-            "epochs": 100,
+            "epochs": 1000,
         },
     )
     
@@ -37,9 +37,7 @@ def main():
     # Print dataset info
     print(f"Training samples: {len(building3D_dataset['train'])}")
     print(f"Test samples: {len(building3D_dataset['test'])}")
-    
-    # Train model
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # Create data loaders for training and testing (blueprint)
     train_loader = DataLoader(
         building3D_dataset['train'], 
@@ -49,7 +47,7 @@ def main():
         collate_fn=building3D_dataset['train'].collate_batch
     )
 
-    model, loss_history = train_model(train_loader, num_epochs=1000, learning_rate=0.001, wandb_run=run)
+    model = train_model(train_loader, num_epochs=1000, learning_rate=0.001, wandb_run=run)
 
     # Save the trained model first
     torch.save(model.state_dict(), 'trained_model.pth')

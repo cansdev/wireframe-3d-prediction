@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from scipy.optimize import linear_sum_assignment
 
 
 class WireframeLoss(nn.Module):
@@ -34,9 +35,9 @@ class WireframeLoss(nn.Module):
         self.smooth_l1_loss = nn.SmoothL1Loss()  # For vertex position regression (better than MSE)
         self.bce_loss = nn.BCELoss()             # For edge existence classification
         
-    def forward(self, predictions, targets, matched_indices):
+    def forward(self, predictions, targets):
         """
-        Compute the combined wireframe loss with Hungarian matching
+        Compute the combined wireframe loss with built-in Hungarian matching
         
         Args:
             predictions (dict): Model predictions containing:
@@ -50,9 +51,6 @@ class WireframeLoss(nn.Module):
                 - edge_labels: Target edge existence labels (batch_size, num_edges)
                 - vertex_counts: Target vertex counts (batch_size,)
                 
-            matched_indices (list): Hungarian matching indices for each batch element
-                Each element is a tuple (pred_indices, target_indices) of matched pairs
-                
         Returns:
             dict: Dictionary containing individual and total losses
         """
@@ -62,6 +60,10 @@ class WireframeLoss(nn.Module):
         pred_vertices = predictions['vertices']      # (batch_size, max_vertices, 3)
         target_vertices = targets['vertices']        # (batch_size, max_vertices, 3)
         target_existence = targets['vertex_existence']  # (batch_size, max_vertices) - binary labels
+        vertex_counts = targets['vertex_counts']     # (batch_size,) - actual vertex counts
+        
+        # Perform Hungarian matching internally
+        matched_indices = self._hungarian_matching(predictions, targets)
         
         # Use Hungarian matching for vertex loss computation
         vertex_loss = self._compute_matched_vertex_loss(pred_vertices, target_vertices, matched_indices)
@@ -100,6 +102,148 @@ class WireframeLoss(nn.Module):
             'existence_loss': existence_loss,  # BCE loss for vertex existence
             'edge_loss': edge_loss,            # BCE loss for edge connectivity
         }
+    
+    def _hungarian_matching(self, predictions, targets):
+        """
+        Perform Hungarian matching between predictions and targets,
+        prioritizing matching "existing" predicted vertices with actual target vertices.
+        
+        Args:
+            predictions (dict): Model predictions
+            targets (dict): Ground truth targets
+            
+        Returns:
+            list: List of (pred_indices, target_indices) tuples for each batch element
+        """
+        batch_size = predictions['vertices'].shape[0]
+        max_pred_vertices = predictions['vertices'].shape[1] # max_vertices olarak adlandırıldı
+        
+        pred_vertices = predictions['vertices']  # (batch_size, max_pred_vertices, 3)
+        pred_existence = predictions['existence_probabilities']  # (batch_size, max_pred_vertices)
+        
+        target_vertices = targets['vertices']  # (batch_size, max_target_vertices, 3) - Varsayım: target'ta da bir max_vertex_count var
+        target_vertex_counts = targets['vertex_counts']  # (batch_size,)
+        
+        matched_indices = []
+        
+        for batch_idx in range(batch_size):
+            actual_target_count = target_vertex_counts[batch_idx].item()
+            
+            # --- Adım 1: Mevcut Ground Truth Vertexleri İçin Maliyet Matrisi Oluşturma ---
+            
+            # Tahmin edilen ve gerçek verteksler
+            pred_v = pred_vertices[batch_idx]  # (max_pred_vertices, 3)
+            pred_e = pred_existence[batch_idx]  # (max_pred_vertices,)
+            
+            # Yalnızca var olan hedefleri kullan
+            target_v_actual = target_vertices[batch_idx, :actual_target_count]  # (actual_target_count, 3)
+            
+            # Konum Maliyeti (L1)
+            cost_vertex_pos = torch.cdist(pred_v, target_v_actual, p=1)  # (max_pred_vertices, actual_target_count)
+            
+            # Varoluş Maliyeti: Tahmin edilen verteksin var olması isteniyorsa (ground truth ile eşleşiyorsa)
+            # cost_existence_match = 1 - pred_e  # pred_e ne kadar yüksekse maliyet o kadar az
+            # Veya direkt pred_e'nin 1'e olan uzaklığı:
+            cost_existence_match = torch.abs(pred_e.unsqueeze(1) - 1.0) # (max_pred_vertices, 1)
+            cost_existence_match = cost_existence_match.expand(-1, actual_target_count) # (max_pred_vertices, actual_target_count)
+
+            # Eşleşen durumlar için toplam maliyet
+            cost_to_actual_targets = cost_vertex_pos + cost_existence_match
+            
+            # --- Adım 2: Eşleşmeyen Tahminler İçin "Boşluk" Maliyeti Ekleme ---
+            # Hungarian algoritması genellikle kare bir matris veya en azından satır/sütun sayısının eşit olduğu bir matris bekler
+            # veya max_pred_vertices vs actual_target_count olduğunda küçük olan kadar eşleşme yapar.
+            # "Doğru olanları seçmek" demek, ground truth'ta karşılığı olmayan tahminlerin de bir maliyeti olması demektir.
+            
+            # Boşluk sütunları oluştur (yani, ground truth'ta karşılığı olmayan durumlar)
+            num_dummy_targets = max_pred_vertices - actual_target_count
+            
+            # Eğer ground truth'tan daha fazla tahmin varsa ve her tahmin bir yere atanmak zorundaysa
+            # veya ground truth'a göre bir eşleşme bulunamayan tahminler için maliyet belirlemek istiyorsak
+            if num_dummy_targets > 0:
+                # Bir tahminin "boşluk" (ground truth'ta eşleşme yok) ile eşleşme maliyeti
+                # Bu, tahmin edilen vertexin var olmamasını teşvik etmelidir.
+                # Yani, pred_e ne kadar yüksekse (var olma olasılığı), boşlukla eşleşme maliyeti o kadar yüksek olmalı.
+                cost_to_dummy_targets = pred_e.unsqueeze(1) # (max_pred_vertices, 1)
+                cost_to_dummy_targets = cost_to_dummy_targets.expand(-1, num_dummy_targets) # (max_pred_vertices, num_dummy_targets)
+                
+                # Tüm maliyet matrisini birleştir
+                full_cost_matrix = torch.cat((cost_to_actual_targets, cost_to_dummy_targets), dim=1) # (max_pred_vertices, max_pred_vertices)
+            else:
+                # Eğer tahmin sayısı ground truth sayısından az veya eşitse, boşluk sütunlarına gerek yok.
+                # Ancak Hungarian hala tüm tahminleri bir hedefle (veya boşlukla) eşleştirmeye çalışır.
+                # Burada sadece mevcut hedeflere atama yapılır.
+                # Eğer max_pred_vertices < actual_target_count ise, bazı ground truth'lar eşleşmez kalır.
+                # Eğer max_pred_vertices == actual_target_count ise, birebir eşleşme aranır.
+                full_cost_matrix = cost_to_actual_targets
+                # Not: Bu durumda hala max_pred_vertices < actual_target_count olabilir.
+                # linear_sum_assignment bu durumda sadece min(M, N) adet eşleşme döndürür.
+                # En basiti için matrisi yine de kare yapalım:
+                if actual_target_count > max_pred_vertices:
+                     # Ground truth'ta daha fazla vertex varsa, matrisi genişletelim
+                    padding_needed = actual_target_count - max_pred_vertices
+                    # Eşleşmeyen tahminler için büyük bir ceza
+                    padding_rows = torch.full((padding_needed, actual_target_count), float('inf'), device=pred_v.device)
+                    full_cost_matrix = torch.cat((full_cost_matrix, padding_rows), dim=0)
+
+                elif actual_target_count < max_pred_vertices:
+                    # Daha önce num_dummy_targets ile ele aldığımız durum, bu else bloğunda olmamalı.
+                    # Bu durumda full_cost_matrix = cost_to_actual_targets olacaktır,
+                    # linear_sum_assignment ise min(M, N) = actual_target_count kadar eşleşme bulacaktır.
+                    pass # Bu kısım önceki if bloğu ile ele alındı, veya aşağıdaki basit formül.
+            
+            # Daha basit ve genellikle yeterli bir yaklaşım: Sadece mevcut hedefler ile eşleşme matrisini kullan
+            # ve eğer `actual_target_count` < `max_pred_vertices` ise, `linear_sum_assignment` doğal olarak
+            # `actual_target_count` kadar eşleşme bulur. Kalan tahminler eşleşmez kalır.
+            # "Doğru olanları seçmek" burada, eşleşen tahminlerin olması istenen varoluş değerlerine sahip olmasıdır.
+            
+            # --- Genel Maliyet Matrisi Oluşturma ---
+            # prediction_idx (0..max_pred_vertices-1) -> target_idx (0..actual_target_count-1)
+            # VEYA
+            # prediction_idx (0..max_pred_vertices-1) -> "Boşluk" (dummy target)
+            
+            # Ağırlıklandırma ekleyelim, varsayılan olarak 1.0 (ayarlanabilir)
+            alpha = 1.0 # Konum maliyeti ağırlığı
+            beta = 1.0  # Varoluş maliyeti ağırlığı (match durumunda)
+            gamma = 1.0 # Varoluş maliyeti (dummy durumunda)
+
+            # Mevcut hedeflerle eşleşme maliyeti
+            cost_to_actual_targets = alpha * cost_vertex_pos + beta * torch.abs(pred_e.unsqueeze(1) - 1.0).expand(-1, actual_target_count)
+
+            # Boşluk hedefleri (dummy targets) ile eşleşme maliyeti
+            # Bu maliyet, tahmin edilen vertexin var olmaması gerektiğini teşvik eder.
+            # Yani, pred_e ne kadar yüksekse (var olma olasılığı), boşlukla eşleşme maliyeti o kadar yüksek olmalı.
+            num_dummy_targets_to_add = max_pred_vertices - actual_target_count
+            if num_dummy_targets_to_add > 0:
+                cost_to_dummy_targets = gamma * pred_e.unsqueeze(1).expand(-1, num_dummy_targets_to_add)
+                final_cost_matrix = torch.cat((cost_to_actual_targets, cost_to_dummy_targets), dim=1)
+            else: # Eğer ground truth sayısı tahmin sayısına eşit veya fazlaysa
+                  # Bu durumda, sadece actual_target_count kadar eşleşme bulunur.
+                  # Kalan ground truth'lar eşleşmez kalır.
+                  # Veya matrisi kare yapmak için dummy prediction ekleyebiliriz (daha kompleks).
+                final_cost_matrix = cost_to_actual_targets
+            
+            # Eğer ground truth sayısı tahmin sayısından fazlaysa, matrisi kare yapmak için dummy predictions ekleyebiliriz
+            # Bu, bazı ground truth'ların eşleşmediğini gösterir.
+            if actual_target_count > max_pred_vertices:
+                num_dummy_preds_to_add = actual_target_count - max_pred_vertices
+                # Sonsuz maliyetle dummy prediction'lar ekle, böylece ground truth'lar onlarla eşleşmez
+                dummy_pred_costs = torch.full((num_dummy_preds_to_add, final_cost_matrix.shape[1]), float('inf'), device=pred_v.device)
+                final_cost_matrix = torch.cat((final_cost_matrix, dummy_pred_costs), dim=0)
+
+            # Apply Hungarian algorithm
+            cost_matrix_np = final_cost_matrix.detach().cpu().numpy()
+            pred_indices, target_indices = linear_sum_assignment(cost_matrix_np)
+            
+            # Eşleşenlerin sadece gerçek hedeflere atanmış olanlar olduğundan emin ol
+            # Dummy hedeflere atanmış olanları filtrele
+            valid_match_mask = (target_indices < actual_target_count)
+            pred_indices_filtered = pred_indices[valid_match_mask]
+            target_indices_filtered = target_indices[valid_match_mask]
+            
+            matched_indices.append((pred_indices_filtered, target_indices_filtered))
+        
+        return matched_indices
     
     def _compute_matched_vertex_loss(self, pred_vertices, target_vertices, matched_indices):
         """
