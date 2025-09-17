@@ -1,17 +1,12 @@
 import time
 import numpy as np
-from scipy.optimize import linear_sum_assignment # hungarian algorithm
-from scipy.spatial.distance import cdist # distance matrix
 import torch
 import torch.nn as nn
 from torch.optim import Adam
 import logging
 from models.PointCloudToWireframe import PointCloudToWireframe
-from models.WireframeHungarianMatcher import WireframeHungarianMatcher
-from models.LearningScheduler import (
-    TrainingState, log_training_progress, 
-    create_wandb_log_dict, hungarian_rmse, create_adjacency_matrix_from_predictions,
-    create_edge_labels_from_edge_set, adaptive_lr_step
+from models.utils import (
+    create_edge_labels_from_edge_set, 
 )
 from losses.WireframeLoss import WireframeLoss
 import wandb
@@ -21,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=None):
+
     """Train model using the new Building3D dataset structure"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"Training on device: {device}")
@@ -32,7 +28,6 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
     point_clouds = first_batch['point_clouds']  # Shape: (batch_size, num_points, features)
     wf_vertices = first_batch['wf_vertices']  # List of variable length vertex arrays
     wf_edges = first_batch['wf_edges']  # List of variable length edge arrays
-    wf_edge_number = first_batch['wf_edge_number']  # Number of edges per sample
     
     # Get dimensions
     batch_size = point_clouds.shape[0]
@@ -98,16 +93,9 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
         existence_weight=1.5  # Weight for vertex existence prediction
     ) 
     
-    # Initialize Hungarian matcher for optimal vertex assignment
-    hungarian_matcher = WireframeHungarianMatcher(
-        cost_vertex=1.0,      # Weight for vertex coordinate matching
-        cost_existence=1.0    # Weight for existence probability matching
-    )
-    
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
-    # Initialize training state
-    training_state = TrainingState()
+
     
     # Training loop
     model.train()
@@ -128,88 +116,96 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
         actual_count = actual_vertex_counts[i].item()
         target_vertices[i, :actual_count] = wf_vertices[i][:actual_count]
     
-    # W&B run is now managed by main.py
+    # Simple training state variables (no class needed)
+    best_loss = float('inf')
+    best_vertex_rmse = float('inf')
+    best_model_state = None
+    loss_history = []
+    patience_counter = 0
+    patience = 100  # Early stopping patience
+    
+    # Training loop
     for epoch in range(num_epochs):
         optimizer.zero_grad()
         
-        # Forward pass with vertex count information
+        # Forward pass
         predictions = model(point_cloud_tensor, actual_vertex_counts)
         
-        # Prepare targets for Hungarian matching
-        targets_for_matching = []
-        for i in range(batch_size):
-            actual_count = actual_vertex_counts[i].item()
-            target_dict = {
-                'vertices': target_vertices[i, :actual_count],  # Only existing vertices
-                'existence': torch.ones(actual_count, device=device)  # All existing vertices have existence=1
-            }
-            targets_for_matching.append(target_dict)
-        
-        # Perform Hungarian matching
-        with torch.no_grad():
-            matched_indices = hungarian_matcher(predictions, targets_for_matching)
-        
-        # Calculate loss with Hungarian matching
+        # Calculate loss (Hungarian matching handled internally)
         targets = {
             'vertices': target_vertices,
             'vertex_existence': vertex_existence_batch,
             'edge_labels': edge_labels_batch,
             'vertex_counts': actual_vertex_counts
         }
-        loss_dict = criterion(predictions, targets, matched_indices)
+        loss_dict = criterion(predictions, targets)
         total_loss = loss_dict['total_loss']
         
         # Backward pass
         total_loss.backward()
-        
-        # Gradient clipping to prevent exploding gradients
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        
         optimizer.step()
         
-        # Track progress
-        training_state.track_loss(total_loss)
+        # Track loss
+        loss_history.append(total_loss.item())
         
-        # Calculate current vertex RMSE for monitoring (using first sample in batch)
-        # For now, we'll use a simple RMSE calculation without scalers
-        pred_vertices = predictions['vertices']
-        vertex_rmse = torch.sqrt(torch.mean((pred_vertices - target_vertices) ** 2))
-        training_state.current_vertex_rmse = vertex_rmse.item()
+        # Calculate RMSE for monitoring (simple version)
+        with torch.no_grad():
+            pred_vertices = predictions['vertices'][0].cpu().numpy()[:actual_vertex_counts[0].item()]
+            true_vertices = target_vertices[0].cpu().numpy()[:actual_vertex_counts[0].item()]
+            current_vertex_rmse = np.sqrt(np.mean((pred_vertices - true_vertices) ** 2))
         
-        # Save best model state for monitoring
-        training_state.update_best_state(model, total_loss)
-        
-        # Apply adaptive learning rate (every 50 epochs to avoid too frequent changes)
-        if epoch > 0 and epoch % 50 == 0:
-            adaptive_lr_step(optimizer, training_state.loss_history, patience=150, factor=0.85)
-
-        # Log progress with detailed metrics every 20 epochs
-        if epoch % 20 == 0 or epoch == num_epochs - 1:
-            elapsed_time = training_state.get_elapsed_time()
+        # Update best model
+        if current_vertex_rmse < best_vertex_rmse:
+            best_vertex_rmse = current_vertex_rmse
+            best_model_state = model.state_dict().copy()
+            patience_counter = 0
+        else:
+            patience_counter += 1
             
-            # Get current learning rate from optimizer
+        if total_loss.item() < best_loss:
+            best_loss = total_loss.item()
+        
+        # Early stopping
+        if patience_counter >= patience:
+            logger.info(f"Early stopping at epoch {epoch}! No improvement for {patience} epochs")
+            break
+        
+        # Log progress every 20 epochs
+        if epoch % 20 == 0 or epoch == num_epochs - 1:
+            elapsed_time = time.time() - start_time
             current_lr = optimizer.param_groups[0]['lr']
             
-            # Use the new logging function
-            log_training_progress(epoch, num_epochs, total_loss, loss_dict, 
-                                training_state.current_vertex_rmse, current_lr, 
-                                elapsed_time)
-
-            # Log comprehensive metrics to wandb
-            if wandb_run is not None:
-                log_dict = create_wandb_log_dict(epoch, total_loss, loss_dict, 
-                                               training_state.current_vertex_rmse, current_lr, 
-                                               elapsed_time, training_state.best_loss, 
-                                               training_state.best_vertex_rmse)
-                wandb_run.log(log_dict)
-
-            # Log separator for readability
-            if epoch % 100 == 0 or epoch == num_epochs - 1:
-                logger.info("-" * 80)  # Add separator line for readability
+            # Simple logging
+            logger.info(f"Epoch {epoch:4d}/{num_epochs} | "
+                       f"Loss: {total_loss.item():.6f} | "
+                       f"RMSE: {current_vertex_rmse:.6f} | "
+                       f"LR: {current_lr:.8f} | "
+                       f"Time: {elapsed_time:.1f}s")
             
-    # Load the best model state before returning
-    model = training_state.load_best_model(model)
-
-    logger.info(f"Training completed! Best loss: {training_state.best_loss:.6f}")
+            # Log to wandb if available
+            if wandb_run is not None:
+                log_dict = {
+                    "epoch": epoch,
+                    "total_loss": total_loss.item(),
+                    "vertex_loss": loss_dict['vertex_loss'].item(),
+                    "existence_loss": loss_dict['existence_loss'].item(),
+                    "edge_loss": loss_dict['edge_loss'].item(),
+                    "vertex_rmse": current_vertex_rmse,
+                    "learning_rate": current_lr,
+                    "elapsed_time": elapsed_time,
+                    "best_loss": best_loss,
+                    "best_vertex_rmse": best_vertex_rmse
+                }
+                wandb_run.log(log_dict)
+            
+            if epoch % 100 == 0:
+                logger.info("-" * 80)
     
-    return model, training_state.loss_history
+    # Load best model
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        logger.info(f"Loaded best model with RMSE: {best_vertex_rmse:.6f}")
+    
+    logger.info(f"Training completed! Best loss: {best_loss:.6f}")
+    return model

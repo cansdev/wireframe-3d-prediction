@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from scipy.optimize import linear_sum_assignment
 
 
 class WireframeLoss(nn.Module):
@@ -34,9 +35,9 @@ class WireframeLoss(nn.Module):
         self.smooth_l1_loss = nn.SmoothL1Loss()  # For vertex position regression (better than MSE)
         self.bce_loss = nn.BCELoss()             # For edge existence classification
         
-    def forward(self, predictions, targets, matched_indices):
+    def forward(self, predictions, targets):
         """
-        Compute the combined wireframe loss with Hungarian matching
+        Compute the combined wireframe loss with built-in Hungarian matching
         
         Args:
             predictions (dict): Model predictions containing:
@@ -50,9 +51,6 @@ class WireframeLoss(nn.Module):
                 - edge_labels: Target edge existence labels (batch_size, num_edges)
                 - vertex_counts: Target vertex counts (batch_size,)
                 
-            matched_indices (list): Hungarian matching indices for each batch element
-                Each element is a tuple (pred_indices, target_indices) of matched pairs
-                
         Returns:
             dict: Dictionary containing individual and total losses
         """
@@ -62,6 +60,10 @@ class WireframeLoss(nn.Module):
         pred_vertices = predictions['vertices']      # (batch_size, max_vertices, 3)
         target_vertices = targets['vertices']        # (batch_size, max_vertices, 3)
         target_existence = targets['vertex_existence']  # (batch_size, max_vertices) - binary labels
+        vertex_counts = targets['vertex_counts']     # (batch_size,) - actual vertex counts
+        
+        # Perform Hungarian matching internally
+        matched_indices = self._hungarian_matching(predictions, targets)
         
         # Use Hungarian matching for vertex loss computation
         vertex_loss = self._compute_matched_vertex_loss(pred_vertices, target_vertices, matched_indices)
@@ -100,6 +102,57 @@ class WireframeLoss(nn.Module):
             'existence_loss': existence_loss,  # BCE loss for vertex existence
             'edge_loss': edge_loss,            # BCE loss for edge connectivity
         }
+    
+    def _hungarian_matching(self, predictions, targets):
+        """
+        Perform Hungarian matching between predictions and targets.
+        
+        Args:
+            predictions (dict): Model predictions
+            targets (dict): Ground truth targets
+            
+        Returns:
+            list: List of (pred_indices, target_indices) tuples for each batch element
+        """
+        batch_size = predictions['vertices'].shape[0]
+        pred_vertices = predictions['vertices']  # (batch_size, max_vertices, 3)
+        pred_existence = predictions['existence_probabilities']  # (batch_size, max_vertices)
+        target_vertices = targets['vertices']  # (batch_size, max_vertices, 3)
+        vertex_counts = targets['vertex_counts']  # (batch_size,)
+        
+        matched_indices = []
+        
+        for batch_idx in range(batch_size):
+            actual_count = vertex_counts[batch_idx].item()
+            
+            if actual_count == 0:
+                # No vertices to match
+                matched_indices.append(([], []))
+                continue
+            
+            # Get predictions and targets for this batch element
+            pred_v = pred_vertices[batch_idx]  # (max_vertices, 3)
+            pred_e = pred_existence[batch_idx]  # (max_vertices,)
+            target_v = target_vertices[batch_idx, :actual_count]  # (actual_count, 3)
+            
+            # Compute cost matrix
+            # L1 distance between vertex coordinates
+            cost_vertex = torch.cdist(pred_v, target_v, p=1)  # (max_vertices, actual_count)
+            
+            # Existence probability cost (difference from 1.0 for existing vertices)
+            cost_existence = torch.abs(pred_e.unsqueeze(1) - 1.0)  # (max_vertices, 1)
+            cost_existence = cost_existence.expand(-1, actual_count)  # (max_vertices, actual_count)
+            
+            # Combine costs
+            total_cost = cost_vertex + cost_existence
+            
+            # Apply Hungarian algorithm
+            cost_matrix = total_cost.detach().cpu().numpy()
+            pred_indices, target_indices = linear_sum_assignment(cost_matrix)
+            
+            matched_indices.append((pred_indices, target_indices))
+        
+        return matched_indices
     
     def _compute_matched_vertex_loss(self, pred_vertices, target_vertices, matched_indices):
         """

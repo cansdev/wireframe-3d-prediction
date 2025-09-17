@@ -272,18 +272,24 @@ class APCalculator(object):
             self.ap_dict['tp_fn_edges'] += tp_fn_edges
 
     def output_accuracy(self):
-        self.ap_dict['average_corner_offset'] = self.ap_dict['distance'] / self.ap_dict['tp_corners']
-        self.ap_dict['average_wed'] = self.ap_dict['wed'] / self.batch_size
+        self.ap_dict['average_corner_offset'] = self.ap_dict['distance'] / self.ap_dict['tp_corners'] if self.ap_dict['tp_corners'] > 0 else 0.0
+        self.ap_dict['average_wed'] = self.ap_dict['wed'] / self.batch_size if self.batch_size > 0 else 0.0
 
-        self.ap_dict['corners_precision'] = self.ap_dict['tp_corners'] / self.ap_dict['tp_fp_corners']
-        self.ap_dict['corners_recall'] = self.ap_dict['tp_corners'] / self.ap_dict['tp_fn_corners']
-        self.ap_dict['corners_f1'] = 2 * self.ap_dict['corners_precision'] * self.ap_dict['corners_recall'] / (
-                self.ap_dict['corners_precision'] + self.ap_dict['corners_recall'])
+        # Corner metrics with division by zero protection
+        self.ap_dict['corners_precision'] = self.ap_dict['tp_corners'] / self.ap_dict['tp_fp_corners'] if self.ap_dict['tp_fp_corners'] > 0 else 0.0
+        self.ap_dict['corners_recall'] = self.ap_dict['tp_corners'] / self.ap_dict['tp_fn_corners'] if self.ap_dict['tp_fn_corners'] > 0 else 0.0
+        
+        # Corner F1 score with protection
+        precision_recall_sum = self.ap_dict['corners_precision'] + self.ap_dict['corners_recall']
+        self.ap_dict['corners_f1'] = 2 * self.ap_dict['corners_precision'] * self.ap_dict['corners_recall'] / precision_recall_sum if precision_recall_sum > 0 else 0.0
 
-        self.ap_dict['edges_precision'] = self.ap_dict['tp_edges'] / self.ap_dict['tp_fp_edges']
-        self.ap_dict['edges_recall'] = self.ap_dict['tp_edges'] / self.ap_dict['tp_fn_edges']
-        self.ap_dict['edges_f1'] = 2 * self.ap_dict['edges_precision'] * self.ap_dict['edges_recall'] / (
-                self.ap_dict['edges_precision'] + self.ap_dict['edges_recall'])
+        # Edge metrics with division by zero protection
+        self.ap_dict['edges_precision'] = self.ap_dict['tp_edges'] / self.ap_dict['tp_fp_edges'] if self.ap_dict['tp_fp_edges'] > 0 else 0.0
+        self.ap_dict['edges_recall'] = self.ap_dict['tp_edges'] / self.ap_dict['tp_fn_edges'] if self.ap_dict['tp_fn_edges'] > 0 else 0.0
+        
+        # Edge F1 score with protection
+        edge_precision_recall_sum = self.ap_dict['edges_precision'] + self.ap_dict['edges_recall']
+        self.ap_dict['edges_f1'] = 2 * self.ap_dict['edges_precision'] * self.ap_dict['edges_recall'] / edge_precision_recall_sum if edge_precision_recall_sum > 0 else 0.0
 
         print('Wireframe Edit distance', self.ap_dict['average_wed'])
         print('Average Corner offset', self.ap_dict['average_corner_offset'])

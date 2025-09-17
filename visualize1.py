@@ -127,7 +127,7 @@ def main():
     model, building3D_dataset, device = load_trained_model_for_visualization()
     
     # Ask user which dataset to visualize
-    dataset_choice = input("Enter your choice (1 or 2): ").strip()
+    dataset_choice = input("Enter your choice (1(train) or 2(test)): ").strip()
     
     if dataset_choice == "1":
         # Use train dataset
