@@ -95,8 +95,6 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
     
     optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=1e-6, eps=1e-8, betas=(0.9, 0.999))  # Add small weight decay
     
-
-    
     # Training loop
     model.train()
 
@@ -119,10 +117,7 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
     # Simple training state variables (no class needed)
     best_loss = float('inf')
     best_vertex_rmse = float('inf')
-    best_model_state = None
     loss_history = []
-    patience_counter = 0
-    patience = 100  # Early stopping patience
     
     # Training loop
     for epoch in range(num_epochs):
@@ -158,18 +153,9 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
         # Update best model
         if current_vertex_rmse < best_vertex_rmse:
             best_vertex_rmse = current_vertex_rmse
-            best_model_state = model.state_dict().copy()
-            patience_counter = 0
-        else:
-            patience_counter += 1
             
         if total_loss.item() < best_loss:
             best_loss = total_loss.item()
-        
-        # Early stopping
-        if patience_counter >= patience:
-            logger.info(f"Early stopping at epoch {epoch}! No improvement for {patience} epochs")
-            break
         
         # Log progress every 20 epochs
         if epoch % 20 == 0 or epoch == num_epochs - 1:
@@ -202,10 +188,5 @@ def train_model(data_loader, num_epochs=5000, learning_rate=0.001, wandb_run=Non
             if epoch % 100 == 0:
                 logger.info("-" * 80)
     
-    # Load best model
-    if best_model_state is not None:
-        model.load_state_dict(best_model_state)
-        logger.info(f"Loaded best model with RMSE: {best_vertex_rmse:.6f}")
-    
-    logger.info(f"Training completed! Best loss: {best_loss:.6f}")
+    logger.info(f"Training completed! Best loss: {best_loss:.6f}, Best RMSE: {best_vertex_rmse:.6f}")
     return model
